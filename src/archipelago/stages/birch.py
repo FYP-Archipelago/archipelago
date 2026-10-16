@@ -5,9 +5,14 @@ from typing import Any
 import numpy as np
 from sklearn.cluster import Birch
 
-from ...config import Config
-from ...types import FeatureSet
 from ..calibrate import neighbour_distance
+from ..config import (
+    BIRCH_BRANCHING_FACTOR,
+    CALIBRATION_SAMPLE_SIZE,
+    NEIGHBOUR_PERCENTILE,
+    Config,
+)
+from ..features import FeatureSet
 
 MIN_BLOCK_TO_FIT = 3
 
@@ -17,21 +22,21 @@ class BirchStage:
 
     def __init__(self, config: Config):
         self.config = config
-        self.settings = config.birch
         self._diagnostics: dict[str, Any] = {}
 
     def _threshold(self, features: FeatureSet, rows: np.ndarray) -> float:
-        if self.settings.threshold != "auto":
-            return float(self.settings.threshold)
-        return max(
+        if self.config.birch_threshold is not None:
+            return float(self.config.birch_threshold)
+        measured = max(
             neighbour_distance(
                 features.matrix[rows],
-                self.config.calibration.sample_size,
-                self.config.calibration.percentile,
+                CALIBRATION_SAMPLE_SIZE,
+                NEIGHBOUR_PERCENTILE,
                 self.config.seed,
             ),
             1e-12,
         )
+        return measured / self.config.detail
 
     def fit_predict(self, features: FeatureSet, groups: np.ndarray) -> np.ndarray:
         rows = features.usable
@@ -41,7 +46,6 @@ class BirchStage:
 
         threshold = self._threshold(features, rows)
         self._diagnostics["threshold"] = threshold
-        self._diagnostics["branching_factor"] = self.settings.branching_factor
 
         next_label = 0
         fitted = skipped = 0
@@ -59,7 +63,7 @@ class BirchStage:
                 continue
             model = Birch(
                 threshold=threshold,
-                branching_factor=self.settings.branching_factor,
+                branching_factor=BIRCH_BRANCHING_FACTOR,
                 n_clusters=None,
             )
             local = model.fit_predict(features.matrix[block])
@@ -73,7 +77,6 @@ class BirchStage:
             {
                 "blocks_fitted": fitted,
                 "blocks_too_small_to_fit": skipped,
-                "subclusters": next_label,
                 "mean_subclusters_per_fitted_block": (
                     float(np.mean(subcluster_counts)) if subcluster_counts else 0.0
                 ),

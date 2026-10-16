@@ -7,9 +7,14 @@ from typing import Any
 import numpy as np
 from sklearn.cluster import DBSCAN
 
-from ...config import Config
-from ...types import FeatureSet
 from ..calibrate import neighbour_distance
+from ..config import (
+    CALIBRATION_SAMPLE_SIZE,
+    HALF_LIFE_FRACTION,
+    NEIGHBOUR_PERCENTILE,
+    Config,
+)
+from ..features import FeatureSet
 
 
 class MicroCluster:
@@ -47,24 +52,17 @@ class DenStreamStage:
 
     def __init__(self, config: Config):
         self.config = config
-        self.settings = config.denstream
         self._diagnostics: dict[str, Any] = {}
         self.row_weights: np.ndarray | None = None
-        self.row_macro: np.ndarray | None = None
 
-    def _clock(self, features: FeatureSet, rows: np.ndarray) -> np.ndarray:
-        choice = self.settings.clock
-        if choice == "arrival":
-            return np.arange(rows.size, dtype=np.float64)
-        if choice == "generation" and features.generations is not None:
-            return features.generations[rows].astype(np.float64)
-        if features.times is not None:
-            times = features.times[rows]
-            return times - times.min()
-        return np.arange(rows.size, dtype=np.float64)
+    # Clock-corrected t_wall, so points from different islands age along the same axis.
+    @staticmethod
+    def _clock(features: FeatureSet, rows: np.ndarray) -> np.ndarray:
+        times = features.times[rows]
+        return times - times.min()
 
+    # Collapse the incoming partition into weighted points.
     def _summarise(self, features: FeatureSet, groups: np.ndarray, rows: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Collapse the incoming partition into weighted points."""
         clock = self._clock(features, rows)
         keys = groups[rows]
         unique, inverse = np.unique(keys, return_inverse=True)
@@ -101,23 +99,23 @@ class DenStreamStage:
             return labels
 
         points, weights, times, row_to_point = self._summarise(features, groups, rows)
-        epsilon = self.settings.epsilon
-        if epsilon == "auto":
+        epsilon = self.config.denstream_epsilon
+        if epsilon is None:
             epsilon = neighbour_distance(
                 points,
-                self.config.calibration.sample_size,
-                self.config.calibration.percentile,
+                CALIBRATION_SAMPLE_SIZE,
+                NEIGHBOUR_PERCENTILE,
                 self.config.seed,
-            )
+            ) / self.config.detail
         epsilon = max(float(epsilon), 1e-12)
 
         span = float(times.max() - times.min()) if times.size else 1.0
-        half_life = self.settings.half_life
-        if half_life == "auto":
-            half_life = max(span / 4.0, 1e-9)
+        half_life = self.config.denstream_half_life
+        if half_life is None:
+            half_life = max(span * HALF_LIFE_FRACTION, 1e-9)
         lam = 1.0 / float(half_life)
 
-        mu, beta = self.settings.mu, self.settings.beta
+        mu, beta = self.config.denstream_mu, self.config.denstream_beta
         potential_threshold = beta * mu
         if potential_threshold > 1.0:
             prune_period = math.ceil(
@@ -129,7 +127,7 @@ class DenStreamStage:
         assignments, clusters, stats = self._stream(
             points, weights, times, epsilon, lam, potential_threshold, prune_period
         )
-        macro = self._macro_clusters(clusters, epsilon, mu, stats)
+        self._macro_clusters(clusters, epsilon, mu, stats)
 
         point_labels = np.asarray(assignments, dtype=np.int64)
         labels[rows] = point_labels[row_to_point]
@@ -142,16 +140,11 @@ class DenStreamStage:
         )
         self.row_weights = np.zeros(len(features))
         self.row_weights[rows] = final_weights[row_to_point]
-        self.row_macro = np.array(
-            [macro.get(label, -1) for label in point_labels], dtype=np.int64
-        )[row_to_point]
 
         self._diagnostics.update(
             {
                 "epsilon": epsilon,
                 "half_life": float(half_life),
-                "lambda": lam,
-                "clock": self.settings.clock,
                 "time_span": span,
                 "prune_period": None if prune_period == math.inf else int(prune_period),
                 "input_points": int(points.shape[0]),
@@ -263,6 +256,7 @@ class DenStreamStage:
             "micro_clusters_surviving": len(clusters),
         }
 
+    # Drop faded clusters, using the decaying outlier threshold.
     @staticmethod
     def _prune(
         clusters: dict[int, MicroCluster],
@@ -272,7 +266,6 @@ class DenStreamStage:
         potential_threshold: float,
         prune_period: float,
     ) -> int:
-        """Drop faded clusters, using the decaying outlier threshold."""
         scale = 2.0 ** (-lam * (now - reference))
         doomed = []
         for label, cluster in clusters.items():

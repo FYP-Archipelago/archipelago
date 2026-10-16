@@ -4,10 +4,16 @@ from typing import Any
 
 import numpy as np
 
-from ...config import Config
-from ...hashing import MinHasher
-from ...types import FeatureSet, Metric
 from ..calibrate import pair_distance
+from ..config import (
+    CALIBRATION_SAMPLE_SIZE,
+    HAMMING_BIT_MULTIPLIER,
+    LSH_WIDTH_PERCENTILE,
+    NUM_PERM,
+    Config,
+)
+from ..features import FeatureSet, Metric
+from ..hashing import MinHasher
 
 
 class LSHStage:
@@ -15,23 +21,20 @@ class LSHStage:
 
     def __init__(self, config: Config):
         self.config = config
-        self.settings = config.lsh
         self._diagnostics: dict[str, Any] = {}
 
     def _hash_matrix(self, features: FeatureSet, rows: np.ndarray) -> np.ndarray:
         rng = np.random.default_rng(self.config.seed)
         matrix = features.matrix[rows]
-        count = self.settings.hashes
+        count = self.config.lsh_hashes
 
         if features.metric is Metric.L2:
-            width = self.settings.radius
-            if width == "auto":
-                width = pair_distance(
-                    matrix,
-                    self.config.calibration.sample_size,
-                    self.settings.width_percentile,
-                    self.config.seed,
-                )
+            width = pair_distance(
+                matrix,
+                CALIBRATION_SAMPLE_SIZE,
+                LSH_WIDTH_PERCENTILE,
+                self.config.seed,
+            )
             width = max(float(width), 1e-12)
             self._diagnostics["family"] = "p_stable"
             self._diagnostics["bucket_width"] = width
@@ -40,14 +43,13 @@ class LSHStage:
             return np.floor((matrix @ projections + offsets) / width).astype(np.int64)
 
         if features.metric is Metric.HAMMING:
-            bits = count * self.settings.hamming_bit_multiplier
+            bits = count * HAMMING_BIT_MULTIPLIER
             positions = rng.integers(0, max(matrix.shape[1], 1), size=bits)
             self._diagnostics["family"] = "bit_sampling"
-            self._diagnostics["sampled_bits"] = int(bits)
             return matrix[:, positions].astype(np.int64)
 
         # MinHash over the element-id sets. P[collision] is exactly the Jaccard.
-        hasher = MinHasher(max(self.settings.num_perm, count), self.config.seed)
+        hasher = MinHasher(max(NUM_PERM, count), self.config.seed)
         assert features.sets is not None
         signatures = np.empty((rows.size, count), dtype=np.int64)
         for out_row, source_row in enumerate(rows):
@@ -55,7 +57,6 @@ class LSHStage:
                 :count
             ].astype(np.int64)
         self._diagnostics["family"] = "minhash"
-        self._diagnostics["num_perm"] = int(hasher.num_perm)
         return signatures
 
     def fit_predict(self, features: FeatureSet, groups: np.ndarray) -> np.ndarray:
@@ -73,7 +74,6 @@ class LSHStage:
         sizes = np.bincount(inverse)
         self._diagnostics.update(
             {
-                "hashes": int(self.settings.hashes),
                 "blocks": int(sizes.size),
                 "largest_block": int(sizes.max()),
                 "mean_block_size": float(sizes.mean()),
