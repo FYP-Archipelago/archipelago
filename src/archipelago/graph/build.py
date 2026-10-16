@@ -17,8 +17,7 @@ class RowTable:
     island: np.ndarray
     eval_index: np.ndarray
     fitness: np.ndarray
-    # Fitness oriented so that lower is always better.
-    oriented: np.ndarray
+    # Every row's fitness oriented so that lower is always better, sorted.
     sorted_oriented: np.ndarray
     # Position of the row in its island's eval_index order, divided by the island's row count.
     progress: np.ndarray
@@ -40,7 +39,6 @@ def build_rows(
     island = np.array([ev.island_id for ev in evaluations], dtype=np.int64)
     eval_index = np.array([ev.eval_index for ev in evaluations], dtype=np.int64)
     fitness = np.array([ev.fitness for ev in evaluations], dtype=np.float64)
-    oriented = -fitness if maximising else fitness
 
     progress = np.zeros(len(evaluations))
     if len(evaluations):
@@ -72,8 +70,7 @@ def build_rows(
         island=island,
         eval_index=eval_index,
         fitness=fitness,
-        oriented=oriented,
-        sorted_oriented=np.sort(oriented),
+        sorted_oriented=np.sort(-fitness if maximising else fitness),
         progress=progress,
         genome_hash=[ev.genome_hash for ev in evaluations],
         lineage=_pairs(lineage),
@@ -109,10 +106,17 @@ def build_graph(
     visits = np.bincount(row_node, minlength=k)
     safe_visits = np.maximum(visits, 1)
 
-    mean_fitness = np.bincount(row_node, weights=rows.fitness, minlength=k) / safe_visits
-    best_oriented = np.full(k, np.inf)
-    np.minimum.at(best_oriented, row_node, rows.oriented)
-    best_fitness = -best_oriented if rows.maximising else best_oriented
+    lowest = np.full(k, np.inf)
+    highest = np.full(k, -np.inf)
+    np.minimum.at(lowest, row_node, rows.fitness)
+    np.maximum.at(highest, row_node, rows.fitness)
+    # Summation rounding can land a mean just outside its members' range (34 equal values
+    # summing to f + 1 ulp), which would rank the node's own rows as better than itself.
+    mean_fitness = np.clip(
+        np.bincount(row_node, weights=rows.fitness, minlength=k) / safe_visits, lowest, highest
+    )
+    best_fitness = highest if rows.maximising else lowest
+    best_oriented = -highest if rows.maximising else lowest
     mean_oriented = -mean_fitness if rows.maximising else mean_fitness
     percentile = np.searchsorted(rows.sorted_oriented, mean_oriented, side="left") / max(m, 1)
     progress = np.bincount(row_node, weights=rows.progress, minlength=k) / safe_visits
