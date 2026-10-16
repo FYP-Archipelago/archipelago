@@ -8,11 +8,11 @@ from typing import Any
 import numpy as np
 
 from .config import Config
+from .encoding.features import build_features
 from .errors import SchemaError
-from .features import build_features
-from .graph import build_graph, build_rows
-from .grouping import group_baseline, group_clustered
-from .layout import project
+from .graph.build import build_graph, build_rows
+from .graph.grouping import group_baseline, group_clustered
+from .graph.layout import project
 from .models import ClusteringInfo, Counts, LayoutInfo, Resolved, Result, RunInfo
 from .records import parse_run
 from .stages import run_stages

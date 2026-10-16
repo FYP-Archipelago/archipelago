@@ -6,9 +6,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ..models import Edges, Graph, Migrations, Nodes
+from ..records import Evaluation
 from .grouping import Grouping
-from .models import Edges, Graph, Migrations, Nodes
-from .records import Evaluation
 
 
 # Per-row facts about the usable rows that both graphs share, computed once.

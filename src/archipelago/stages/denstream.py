@@ -7,14 +7,14 @@ from typing import Any
 import numpy as np
 from sklearn.cluster import DBSCAN
 
-from ..calibrate import neighbour_distance
 from ..config import (
     CALIBRATION_SAMPLE_SIZE,
     HALF_LIFE_FRACTION,
     NEIGHBOUR_PERCENTILE,
     Config,
 )
-from ..features import FeatureSet
+from ..encoding.features import FeatureSet
+from .calibrate import neighbour_distance
 
 
 class MicroCluster:

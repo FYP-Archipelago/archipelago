@@ -8,9 +8,9 @@ from typing import Any, Protocol
 
 import numpy as np
 
+from ..records import Run
 from . import genome as genome_mod
 from .hashing import feature_hash, hash_tokens
-from .records import Run
 
 PERMUTATION_DIMENSION = 64
 TREE_DIMENSION = 128

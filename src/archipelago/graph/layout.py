@@ -5,8 +5,8 @@ from dataclasses import dataclass
 import numpy as np
 from sklearn.decomposition import PCA
 
-from .config import LAYOUT_BY_METRIC, MDS_LANDMARKS
-from .features import Metric
+from ..config import LAYOUT_BY_METRIC, MDS_LANDMARKS
+from ..encoding.features import Metric
 
 COMPONENTS = 3
 # Rows transformed per batch by MDS; a full rows x landmarks distance matrix won't fit in memory.

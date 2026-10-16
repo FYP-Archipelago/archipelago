@@ -5,14 +5,14 @@ from typing import Any
 import numpy as np
 from sklearn.cluster import Birch
 
-from ..calibrate import neighbour_distance
 from ..config import (
     BIRCH_BRANCHING_FACTOR,
     CALIBRATION_SAMPLE_SIZE,
     NEIGHBOUR_PERCENTILE,
     Config,
 )
-from ..features import FeatureSet
+from ..encoding.features import FeatureSet
+from .calibrate import neighbour_distance
 
 MIN_BLOCK_TO_FIT = 3
 

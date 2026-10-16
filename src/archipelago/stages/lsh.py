@@ -4,7 +4,6 @@ from typing import Any
 
 import numpy as np
 
-from ..calibrate import pair_distance
 from ..config import (
     CALIBRATION_SAMPLE_SIZE,
     HAMMING_BIT_MULTIPLIER,
@@ -12,8 +11,9 @@ from ..config import (
     NUM_PERM,
     Config,
 )
-from ..features import FeatureSet, Metric
-from ..hashing import MinHasher
+from ..encoding.features import FeatureSet, Metric
+from ..encoding.hashing import MinHasher
+from .calibrate import pair_distance
 
 
 class LSHStage:

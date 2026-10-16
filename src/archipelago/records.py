@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
-from . import genome as genome_mod
+from .encoding import genome as genome_mod
 from .errors import SchemaError, UnsupportedEncoding
 
 SUPPORTED_SCHEMA_MAJOR = "2"

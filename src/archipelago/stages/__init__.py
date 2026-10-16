@@ -6,7 +6,7 @@ from typing import Any, Protocol
 import numpy as np
 
 from ..config import Config
-from ..features import FeatureSet
+from ..encoding.features import FeatureSet
 from .birch import BirchStage
 from .denstream import DenStreamStage
 from .lsh import LSHStage
