@@ -116,8 +116,13 @@ def _cluster_run(
         (origin, arrived) for origin, arrived in run.meta.migrations if origin in state.row_of and arrived in state.row_of
     ]
     add_migrations(state, [(state.row_of[origin], state.row_of[arrived]) for origin, arrived in migrant_pairs])
+    dead: list[int] = []
     if assignment.row_weights is not None:
         np.maximum.at(state.weight, state.row_node[: state.rows], assignment.row_weights[usable])
+        # A node fades when DenStream pruned the micro-cluster of every one of its rows by the
+        # end of the run: those rows carry weight 0.
+        dead = np.flatnonzero(state.weight[: state.nodes] <= 0).tolist()
+        state.alive[dead] = False
 
     span: dict[int, int] = {}
     for ev in run.evaluations:
@@ -170,7 +175,7 @@ def _cluster_run(
             for i, ev in enumerate(run.evaluations)
         ],
         "coords": layout.coords,
-        "dead_labels": [],
+        "dead_nodes": dead,
         "migration_pairs": migrant_pairs,
         "maximising": run.meta.maximising,
         "budget_per_island": run.meta.budget_per_island,
