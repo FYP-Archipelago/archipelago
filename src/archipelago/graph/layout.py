@@ -13,7 +13,7 @@ COMPONENTS = 3
 MDS_CHUNK = 5000
 
 
-# One projection of the run's usable rows into [-1, 1]^3, shared by both graphs.
+# One projection of the run's usable rows into [-1, 1]^3.
 @dataclass(frozen=True)
 class Layout:
     method: str
@@ -21,15 +21,6 @@ class Layout:
     coords: np.ndarray
     variance_kept_2d: float
     variance_kept_3d: float
-
-    # Mean position of each node's member rows.
-    def node_positions(self, row_node: np.ndarray, nodes: int) -> np.ndarray:
-        visits = np.bincount(row_node, minlength=nodes).astype(np.float64)
-        sums = np.stack(
-            [np.bincount(row_node, weights=self.coords[:, axis], minlength=nodes) for axis in range(COMPONENTS)],
-            axis=1,
-        )
-        return sums / np.maximum(visits, 1.0)[:, None]
 
 
 def _squared_distances(a: np.ndarray, b: np.ndarray) -> np.ndarray:

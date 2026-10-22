@@ -6,8 +6,10 @@ from pydantic import BaseModel
 # model_construct() from lists that are already clean, so pydantic never re-validates them.
 
 
-# Columnar node table: node i is position i in every list.
+# Columnar node table: node i is position i in every list, in id order. Ids are stable for
+# the whole run and never reused; faded nodes leave gaps.
 class Nodes(BaseModel):
+    id: list[int]
     island: list[int]
     x: list[float]
     y: list[float]
@@ -31,14 +33,18 @@ class Nodes(BaseModel):
 
 
 # Parent -> child lineage within an island; weight = how many times the step was taken.
+# source and target are node ids.
 class Edges(BaseModel):
+    id: list[int]
     source: list[int]
     target: list[int]
     weight: list[int]
 
 
 # Migrant origin node -> arrival node; count = migrants that took this route.
+# source and target are node ids.
 class Migrations(BaseModel):
+    id: list[int]
     source: list[int]
     target: list[int]
     count: list[int]

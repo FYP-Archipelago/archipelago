@@ -10,9 +10,16 @@ import numpy as np
 from .config import Config
 from .encoding.features import build_features
 from .errors import SchemaError
-from .graph.build import build_graph, build_rows
-from .graph.grouping import group_baseline, group_clustered
+from .graph.grouping import majority_labels
 from .graph.layout import project
+from .graph.state import (
+    GraphState,
+    add_edges,
+    add_migrations,
+    add_rows,
+    columns,
+    to_graph,
+)
 from .models import ClusteringInfo, Counts, LayoutInfo, Resolved, Result, RunInfo
 from .records import parse_run
 from .stages import run_stages
@@ -30,6 +37,17 @@ def _clean(value: Any) -> Any:
     return value
 
 
+def malformed_warning(malformed: list[str]) -> str:
+    named = ", ".join(malformed[:WARNING_ID_LIMIT])
+    more = ", ..." if len(malformed) > WARNING_ID_LIMIT else ""
+    return f"{len(malformed)} evaluation(s) have a malformed genome: {named}{more}"
+
+
+def missing_warning(missing: int, total: int) -> str:
+    return f"{missing} of {total} evaluations have no decodable genome and are left out of the graph."
+
+
+# Batch mode: cluster a finished run's logs in one go, with whole-run calibration.
 def cluster_run(
     evaluations: Sequence[Mapping[str, Any]],
     events: Sequence[Mapping[str, Any]],
@@ -39,13 +57,13 @@ def cluster_run(
     return result
 
 
-# cluster_run, also returning the per-row stage labels (input order)
-# so the parity script can compare partitions.
+# cluster_run, also returning a trace of the per-row labels, node labels and layout
+# coordinates, so the verification scripts can rebuild the graph independently.
 def _cluster_run(
     evaluations: Sequence[Mapping[str, Any]],
     events: Sequence[Mapping[str, Any]],
     config: Config | Mapping[str, Any] | None = None,
-) -> tuple[Result, np.ndarray]:
+) -> tuple[Result, dict[str, Any]]:
     started = time.perf_counter()
     config = config if isinstance(config, Config) else Config.model_validate(config or {})
     run = parse_run(evaluations, events)
@@ -55,35 +73,57 @@ def _cluster_run(
     warnings: list[str] = []
     features, malformed = build_features(run, config.seed)
     if malformed:
-        named = ", ".join(malformed[:WARNING_ID_LIMIT])
-        more = ", ..." if len(malformed) > WARNING_ID_LIMIT else ""
-        warnings.append(f"{len(malformed)} evaluation(s) have a malformed genome: {named}{more}")
+        warnings.append(malformed_warning(malformed))
     total = len(run.evaluations)
     usable = features.usable
     rows_without_genome = total - int(usable.size)
     if rows_without_genome:
-        warnings.append(
-            f"{rows_without_genome} of {total} evaluations have no decodable genome and are left out of the graph."
-        )
+        warnings.append(missing_warning(rows_without_genome, total))
 
-    rows = build_rows(
-        [run.evaluations[i] for i in usable.tolist()], run.meta.migrations, run.meta.maximising
-    )
-    layout = project(features.matrix[usable], features.metric, config.seed)
-
-    # Baseline grouping is internal only: it applies the majority vote, so one genome is one node.
-    baseline_group = group_baseline(features.islands[usable], [features.hashes[i] for i in usable.tolist()])
     assignment = run_stages(features, config)
     labels = assignment.labels
     diagnostics = {
         stage: {key: _clean(value) for key, value in values.items()} for stage, values in assignment.diagnostics.items()
     }
     resolved = {key: _clean(value) for key, value in assignment.resolved.items()}
-    grouping, conflicts = group_clustered(baseline_group, labels[usable])
+    hashes = [features.hashes[i] for i in usable.tolist()]
+    node_labels, conflicts = majority_labels(features.islands[usable], hashes, labels[usable])
     if conflicts:
         warnings.append(f"{conflicts} location(s) received more than one cluster label; the majority label was used.")
-    weights = assignment.row_weights[usable] if assignment.row_weights is not None else None
-    graph = build_graph(rows, grouping, layout.node_positions(grouping.row_node, grouping.island.size), weights)
+
+    layout = project(features.matrix[usable], features.metric, config.seed)
+    used = [run.evaluations[i] for i in usable.tolist()]
+    state = GraphState(maximising=run.meta.maximising, weighted=assignment.row_weights is not None)
+    add_rows(
+        state,
+        [ev.individual_id for ev in used],
+        features.islands[usable],
+        node_labels,
+        np.array([ev.eval_index for ev in used], dtype=np.int64),
+        np.array([ev.fitness for ev in used], dtype=np.float64),
+        hashes,
+        layout.coords,
+    )
+    # Parents on another island are migrated copies; migrations cover those.
+    lineage = [
+        (parent, child)
+        for child, ev in enumerate(used)
+        for parent in (state.row_of.get(parent_id) for parent_id in ev.parent_ids)
+        if parent is not None and used[parent].island_id == ev.island_id
+    ]
+    add_edges(state, lineage)
+    migrant_pairs = [
+        (origin, arrived) for origin, arrived in run.meta.migrations if origin in state.row_of and arrived in state.row_of
+    ]
+    add_migrations(state, [(state.row_of[origin], state.row_of[arrived]) for origin, arrived in migrant_pairs])
+    if assignment.row_weights is not None:
+        np.maximum.at(state.weight, state.row_node[: state.rows], assignment.row_weights[usable])
+
+    span: dict[int, int] = {}
+    for ev in run.evaluations:
+        span[ev.island_id] = max(span.get(ev.island_id, 0), ev.eval_index + 1)
+    cols = columns(state, span)
+    graph = to_graph(cols)
 
     result = Result(
         run=RunInfo(
@@ -102,11 +142,7 @@ def _cluster_run(
         graph=graph,
         clustering=ClusteringInfo(
             stages=config.stages,
-            counts=Counts(
-                evaluations=total,
-                rows_clustered=int(usable.size),
-                nodes=len(graph.nodes.island),
-            ),
+            counts=Counts(evaluations=total, rows_clustered=int(usable.size), nodes=len(graph.nodes.id)),
             resolved=Resolved(**resolved),
             diagnostics=diagnostics,
             elapsed_seconds=time.perf_counter() - started,
@@ -114,4 +150,30 @@ def _cluster_run(
         rows_without_genome=rows_without_genome,
         warnings=warnings,
     )
-    return result, labels
+    node_label_of = dict(zip(usable.tolist(), node_labels.tolist()))
+    trace = {
+        "labels": labels,
+        "row_weights": assignment.row_weights,
+        "rows": [
+            {
+                "individual_id": ev.individual_id,
+                "island_id": ev.island_id,
+                "seq": ev.seq,
+                "eval_index": ev.eval_index,
+                "fitness": ev.fitness,
+                "genome_hash": ev.genome_hash,
+                "parent_ids": list(ev.parent_ids),
+                "usable": bool(features.mask[i]),
+                "stage_label": int(labels[i]) if features.mask[i] else None,
+                "label": node_label_of.get(i),
+            }
+            for i, ev in enumerate(run.evaluations)
+        ],
+        "coords": layout.coords,
+        "dead_labels": [],
+        "migration_pairs": migrant_pairs,
+        "maximising": run.meta.maximising,
+        "budget_per_island": run.meta.budget_per_island,
+        "config": config,
+    }
+    return result, trace

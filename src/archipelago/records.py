@@ -13,6 +13,8 @@ SUPPORTED_SCHEMA_MAJOR = "2"
 class Evaluation(NamedTuple):
     island_id: int
     eval_index: int
+    # Per-island record counter shared with the event stream; orders an island's records.
+    seq: int
     t_wall: float
     individual_id: str
     parent_ids: tuple[str, ...]
@@ -32,6 +34,9 @@ class RunMeta:
     schema_version: str
     maximising: bool
     genome_encoding: str | None
+    num_islands: int | None = None
+    budget: int | None = None
+    budget_per_island: int | None = None
     benchmark_params: dict[str, Any] = field(default_factory=dict)
     clock_offsets: dict[int, float] = field(default_factory=dict)
     # Island ids announced by island_start events.
@@ -77,6 +82,7 @@ def parse_evaluations(rows: Sequence[Mapping[str, Any]]) -> list[Evaluation]:
         Evaluation(
             island_id=_field(row, i, "island_id", int),
             eval_index=_field(row, i, "eval_index", int),
+            seq=_field(row, i, "seq", int) if not _blank(row.get("seq")) else _field(row, i, "eval_index", int),
             t_wall=_field(row, i, "t_wall", float),
             individual_id=_field(row, i, "individual_id", str),
             parent_ids=_parents(row.get("parent_ids")),
@@ -88,6 +94,10 @@ def parse_evaluations(rows: Sequence[Mapping[str, Any]]) -> list[Evaluation]:
         )
         for i, row in enumerate(rows)
     ]
+
+
+def _optional_int(value: Any) -> int | None:
+    return None if _blank(value) else int(value)
 
 
 def _require(event: Mapping[str, Any], key: str) -> Any:
@@ -140,6 +150,9 @@ def parse_events(events: Sequence[Mapping[str, Any]]) -> RunMeta:
         topology=(start.get("migration") or {}).get("topology"),
         schema_version=schema_version,
         maximising=bool(maximising if maximising is not None else datasets.get("maximising", False)),
+        num_islands=_optional_int(start.get("num_islands")),
+        budget=_optional_int(start.get("evaluation_budget")),
+        budget_per_island=_optional_int(start.get("evaluation_budget_per_island")),
         genome_encoding=first_island.get("genome_encoding") if first_island else None,
         benchmark_params=dict((first_island or {}).get("benchmark_params") or {}),
         clock_offsets=clock_offsets,
