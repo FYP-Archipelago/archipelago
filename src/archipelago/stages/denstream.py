@@ -315,3 +315,164 @@ class DenStreamStage:
     def diagnostics(self) -> dict[str, Any]:
         return self._diagnostics
 
+
+def prune_period_for(potential_threshold: float, lam: float) -> float:
+    if potential_threshold > 1.0:
+        return math.ceil(math.log2(potential_threshold / (potential_threshold - 1.0)) / lam)
+    return math.inf
+
+
+# Streaming DenStream: the batch stream loop, one row at a time. Every row arrives with weight 1
+# at its own clock time; micro-clusters fade and are pruned exactly as in batch, and a pruned
+# label never comes back (a revisit starts a new micro-cluster).
+class OnlineDenStream:
+    name = "denstream"
+
+    def __init__(self, config: Config, epsilon: float, half_life: float, dimension: int, start: float):
+        self.mu, self.beta = config.denstream_mu, config.denstream_beta
+        self.potential_threshold = self.beta * self.mu
+        self.epsilon = epsilon
+        self.half_life = half_life
+        self.lam = 1.0 / half_life
+        self.prune_period = prune_period_for(self.potential_threshold, self.lam)
+        self.reference = start
+        self.next_prune = start + self.prune_period
+        self.now = start
+        self.clusters: dict[int, MicroCluster] = {}
+        self.next_label = 0
+        self.centres = np.zeros((64, dimension))
+        self.labels_at = np.zeros(64, dtype=np.int64)
+        self.position_of: dict[int, int] = {}
+        self.live = 0
+        # The micro-cluster each upstream group last fed.
+        self.fed: dict[int, int] = {}
+        self.counters = dict.fromkeys(
+            ("micro_clusters_created", "micro_clusters_pruned", "merges_into_potential", "merges_into_outlier"), 0
+        )
+        self.input_points = 0
+        self.epsilons = [epsilon]
+        self.half_lives = [half_life]
+        self.lambda_segments: list[tuple[float, float]] = [(start, self.lam)]
+        self.prunes: list[tuple[float, list[int]]] = []
+
+    def alive(self, label: int | None) -> bool:
+        return label is not None and label in self.clusters
+
+    def _append(self, cluster: MicroCluster) -> None:
+        if self.live == self.centres.shape[0]:
+            self.centres = np.vstack([self.centres, np.zeros_like(self.centres)])
+            self.labels_at = np.concatenate([self.labels_at, np.zeros_like(self.labels_at)])
+        self.centres[self.live] = cluster.centre
+        self.labels_at[self.live] = cluster.label
+        self.position_of[cluster.label] = self.live
+        self.live += 1
+
+    def _compact(self) -> None:
+        self.position_of.clear()
+        keep = 0
+        for index in range(self.live):
+            label = int(self.labels_at[index])
+            if label in self.clusters:
+                self.centres[keep] = self.clusters[label].centre
+                self.labels_at[keep] = label
+                self.position_of[label] = keep
+                keep += 1
+        self.live = keep
+
+    def _search(self, point: np.ndarray, inflated: float) -> MicroCluster | None:
+        if not self.live:
+            return None
+        distances = np.linalg.norm(self.centres[: self.live] - point, axis=1)
+        # Only the nearest few can absorb the point without breaching epsilon.
+        probe = min(8, self.live)
+        nearest = np.argpartition(distances, probe - 1)[:probe]
+        for position in nearest[np.lexsort((self.labels_at[nearest], distances[nearest]))]:
+            candidate = self.clusters[int(self.labels_at[position])]
+            if candidate.radius_if_added(point, inflated) <= self.epsilon:
+                return candidate
+        return None
+
+    # Place one row. Returns its micro-cluster label, how it was placed (cache, group, search or
+    # new), and the labels pruned right after it.
+    def insert(
+        self, point: np.ndarray, now: float, cached: int | None, group: int | None
+    ) -> tuple[int, str, list[int]]:
+        self.now = now
+        self.input_points += 1
+        inflated = 2.0 ** (self.lam * (now - self.reference))
+        scale = 2.0 ** (-self.lam * (now - self.reference))
+        how = "new"
+        target = None
+        if self.alive(cached):
+            target, how = self.clusters[cached], "cache"
+        elif group is not None and self.alive(self.fed.get(group)):
+            target, how = self.clusters[self.fed[group]], "group"
+        else:
+            target = self._search(point, inflated)
+            how = "search" if target is not None else "new"
+
+        if target is None:
+            target = MicroCluster(point, inflated, now, self.next_label)
+            self.clusters[self.next_label] = target
+            self.next_label += 1
+            self.counters["micro_clusters_created"] += 1
+            self._append(target)
+        else:
+            potential = target.weight * scale >= self.potential_threshold
+            self.counters["merges_into_potential" if potential else "merges_into_outlier"] += 1
+            target.add(point, inflated, now)
+            self.centres[self.position_of[target.label]] = target.centre
+        if group is not None:
+            self.fed[group] = target.label
+
+        pruned: list[int] = []
+        if now >= self.next_prune:
+            before = set(self.clusters)
+            self.counters["micro_clusters_pruned"] += DenStreamStage._prune(
+                self.clusters, now, self.reference, self.lam, self.potential_threshold, self.prune_period
+            )
+            pruned = sorted(before - set(self.clusters))
+            self.reference = DenStreamStage._rescale(self.clusters, now, self.reference, self.lam)
+            self.next_prune = now + self.prune_period
+            self._compact()
+            self.prunes.append((now, pruned))
+        return target.label, how, pruned
+
+    def set_epsilon(self, epsilon: float) -> None:
+        self.epsilon = epsilon
+        self.epsilons.append(epsilon)
+
+    # Weights so far were decayed with the old lambda; bring them to now first, then switch.
+    def set_half_life(self, half_life: float) -> None:
+        self.reference = DenStreamStage._rescale(self.clusters, self.now, self.reference, self.lam)
+        self.half_life = half_life
+        self.lam = 1.0 / half_life
+        self.prune_period = prune_period_for(self.potential_threshold, self.lam)
+        self.next_prune = self.now + self.prune_period
+        self.half_lives.append(half_life)
+        self.lambda_segments.append((self.now, self.lam))
+
+    # Every live micro-cluster's weight at the latest clock time.
+    def weights(self) -> dict[int, float]:
+        scale = 2.0 ** (-self.lam * (self.now - self.reference))
+        return {label: cluster.weight * scale for label, cluster in self.clusters.items()}
+
+    def diagnostics(self, final: bool) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "epsilon": self.epsilon,
+            "epsilon_checkpoints": list(self.epsilons),
+            "half_life": self.half_life,
+            "half_life_checkpoints": list(self.half_lives),
+            "time_span": self.now,
+            "prune_period": None if self.prune_period == math.inf else int(self.prune_period),
+            "input_points": self.input_points,
+            **self.counters,
+            "micro_clusters_surviving": len(self.clusters),
+            "clusters_after": len(self.clusters),
+        }
+        if final:
+            stats: dict[str, Any] = {"macro_clusters": 0}
+            self.reference = DenStreamStage._rescale(self.clusters, self.now, self.reference, self.lam)
+            DenStreamStage._macro_clusters(self.clusters, self.epsilon, self.mu, stats)
+            out.update(stats)
+        return out
