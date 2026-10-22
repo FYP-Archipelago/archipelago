@@ -35,6 +35,22 @@ HALF_LIFE_FRACTION = 0.25
 # Higher -> more faithful projection, but the cost grows with the square of this.
 MDS_LANDMARKS = 1500
 
+# Streaming: usable rows buffered before the first calibration and layout fit. Too few and the
+# auto distances are noise; more delays the first live graph.
+WARMUP_ROWS = 2000
+
+# Streaming: calibration and the layout are redone at WARMUP_ROWS x this^k rows, because early,
+# spread-out populations give distances several times larger than the converged phase.
+CHECKPOINT_FACTOR = 2
+
+# Streaming: a node's fitness_percentile drifts as every new row arrives; it is re-sent only
+# when it moved by more than this (absolute). Final results are always exact.
+DRIFT_TOLERANCE = 0.005
+
+# Streaming: DenStream weights decay every update; one is re-sent only when it moved by more
+# than this fraction of the last sent value, or every live node would be re-sent every update.
+WEIGHT_TOLERANCE = 0.05
+
 # Allowed range of Config.detail.
 DETAIL_RANGE = (0.5, 2.0)
 

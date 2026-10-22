@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import re
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol
 
 import numpy as np
 
-from ..records import Run
+from ..records import Evaluation, Run
 from . import genome as genome_mod
 from .hashing import feature_hash, hash_tokens
 
@@ -174,6 +174,42 @@ def build_adapter(encoding: str, benchmark_params: dict[str, Any], seed: int) ->
     raise ValueError(f"no feature adapter for encoding: {encoding}")
 
 
+# A row's dense vector (and element ids for set-valued spaces), or None when it has no stored
+# genome. Raises one of DECODE_ERRORS when the genome_repr is malformed.
+def encode(adapter: Adapter, ev: Evaluation) -> tuple[np.ndarray, np.ndarray | None] | None:
+    decoded = genome_mod.decode(ev.genome_repr, ev.genome_repr_mode, ev.genome_encoding)
+    return adapter.encode(decoded) if decoded is not None else None
+
+
+# Streaming: the usable rows' vectors in processing order, grown as rows arrive.
+@dataclass
+class FeatureStore:
+    metric: Metric
+    matrix: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))
+    count: int = 0
+    sets: list[np.ndarray] | None = None
+
+    @property
+    def rows(self) -> np.ndarray:
+        return self.matrix[: self.count]
+
+
+def store_rows(store: FeatureStore, vectors: list[np.ndarray], ids: list[np.ndarray | None]) -> None:
+    width = max([store.matrix.shape[1], *(v.size for v in vectors)])
+    size = store.count + len(vectors)
+    if size > store.matrix.shape[0] or width > store.matrix.shape[1]:
+        grown = np.zeros((max(size, 2 * store.matrix.shape[0], 256), width))
+        grown[: store.count, : store.matrix.shape[1]] = store.matrix[: store.count]
+        store.matrix = grown
+    for offset, vector in enumerate(vectors):
+        store.matrix[store.count + offset, : vector.size] = vector
+    if store.metric is Metric.JACCARD:
+        if store.sets is None:
+            store.sets = []
+        store.sets.extend(i if i is not None else np.empty(0, dtype=np.uint64) for i in ids)
+    store.count = size
+
+
 # Vectorise every evaluation. Returns the features and the individual ids of rows whose
 # genome_repr was present but malformed.
 def build_features(run: Run, seed: int) -> tuple[FeatureSet, list[str]]:
@@ -194,8 +230,7 @@ def build_features(run: Run, seed: int) -> tuple[FeatureSet, list[str]]:
         times.append(run.corrected_time(ev))
         islands.append(ev.island_id)
         try:
-            decoded = genome_mod.decode(ev.genome_repr, ev.genome_repr_mode, ev.genome_encoding)
-            encoded = adapter.encode(decoded) if decoded is not None else None
+            encoded = encode(adapter, ev)
         except DECODE_ERRORS:
             malformed.append(ev.individual_id)
             encoded = None
