@@ -9,7 +9,7 @@ LSH, BIRCH and/or DenStream.
 ## Install
 
 ```bash
-pip install git+https://github.com/FYP-Archipelago/dEA-clustering@<ref>
+pip install git+https://github.com/FYP-Archipelago/archipelago@<ref>
 ```
 
 ## Usage
@@ -75,7 +75,7 @@ islands per occupied genome or cluster. Node fields: `island`, `x`/`y`/`z` (in [
 ## Development
 
 ```bash
-git clone https://github.com/FYP-Archipelago/dEA-clustering
-cd dEA-clustering
+git clone https://github.com/FYP-Archipelago/archipelago
+cd archipelago
 uv sync
 ```
