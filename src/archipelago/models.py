@@ -90,7 +90,7 @@ class ClusteringInfo(BaseModel):
     stages: list[str]
     counts: Counts
     resolved: Resolved
-    diagnostics: dict[str, dict[str, float | int | str | bool | None]]
+    diagnostics: dict[str, dict[str, float | int | str | bool | list[float] | None]]
     elapsed_seconds: float
 
 
@@ -101,3 +101,85 @@ class Result(BaseModel):
     clustering: ClusteringInfo
     rows_without_genome: int
     warnings: list[str]
+
+
+# --- streaming updates: what changed since the previous update ---
+
+
+# Live nodes already sent whose stats changed (exact comparison).
+class NodeChanges(BaseModel):
+    id: list[int]
+    x: list[float]
+    y: list[float]
+    z: list[float]
+    visits: list[int]
+    members: list[int]
+    mean_fitness: list[float | None]
+    best_fitness: list[float | None]
+    progress: list[float]
+    first_eval: list[int]
+    last_eval: list[int]
+    in_degree: list[int]
+    out_degree: list[int]
+    islands_sharing: list[int]
+    migration_endpoint: list[bool]
+
+
+# Every node's rank drifts as each new row arrives, so percentiles travel on their own and only
+# when one moved by more than DRIFT_TOLERANCE since it was last sent.
+class PercentileChanges(BaseModel):
+    id: list[int]
+    fitness_percentile: list[float]
+
+
+# DenStream weights that moved by more than WEIGHT_TOLERANCE (relative); they decay every tick.
+class WeightChanges(BaseModel):
+    id: list[int]
+    weight: list[float]
+
+
+# Every already-sent live node's position, after the layout was refitted.
+class Positions(BaseModel):
+    id: list[int]
+    x: list[float]
+    y: list[float]
+    z: list[float]
+
+
+class EdgeChanges(BaseModel):
+    id: list[int]
+    weight: list[int]
+
+
+class MigrationChanges(BaseModel):
+    id: list[int]
+    count: list[int]
+
+
+# Apply in this order: add new_nodes; overwrite updated_nodes, percentiles, weights and positions; drop
+# removed_nodes with every edge and migration touching them; add new edges and migrations;
+# overwrite their updates; set the bests and overlap.
+class GraphDelta(BaseModel):
+    new_nodes: Nodes
+    updated_nodes: NodeChanges
+    percentiles: PercentileChanges
+    weights: WeightChanges | None
+    removed_nodes: list[int]
+    positions: Positions | None
+    new_edges: Edges
+    edge_updates: EdgeChanges
+    new_migrations: Migrations
+    migration_updates: MigrationChanges
+    island_best: list[int]
+    overall_best: int | None
+    overlap: float
+
+
+class Update(BaseModel):
+    status: Literal["warming_up", "live"]
+    # Set when the layout was refitted in this update (positions then carries every node).
+    layout: LayoutInfo | None
+    clustering: ClusteringInfo
+    rows_without_genome: int
+    warnings: list[str]
+    graph: GraphDelta
