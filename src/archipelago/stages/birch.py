@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -13,6 +14,7 @@ from ..config import (
 )
 from ..encoding.features import FeatureSet
 from .calibrate import neighbour_distance
+from .cf import nearest, radius_if_added
 
 MIN_BLOCK_TO_FIT = 3
 
@@ -87,3 +89,89 @@ class BirchStage:
 
     def diagnostics(self) -> dict[str, Any]:
         return self._diagnostics
+
+
+# One upstream group's subclusters as cluster features: count, linear sum, square sum.
+@dataclass
+class _Subclusters:
+    labels: list[int] = field(default_factory=list)
+    count: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    linear: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))
+    square: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    centre: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))
+    norm: np.ndarray = field(default_factory=lambda: np.zeros(0))
+
+    def add(self, index: int, point: np.ndarray) -> None:
+        self.count[index] += 1.0
+        self.linear[index] += point
+        self.square[index] += float(point @ point)
+        self.centre[index] = self.linear[index] / self.count[index]
+        self.norm[index] = float(self.centre[index] @ self.centre[index])
+
+    def create(self, point: np.ndarray, label: int) -> None:
+        size = len(self.labels)
+        if size == self.count.shape[0]:
+            capacity = max(8, 2 * size)
+            for name in ("count", "square", "norm"):
+                grown = np.zeros(capacity)
+                grown[:size] = getattr(self, name)[:size]
+                setattr(self, name, grown)
+            for name in ("linear", "centre"):
+                grown = np.zeros((capacity, point.size))
+                if size:
+                    grown[:size] = getattr(self, name)[:size]
+                setattr(self, name, grown)
+        self.labels.append(label)
+        self.linear[size] = 0.0
+        self.square[size] = 0.0
+        self.add(size, point)
+
+
+# Streaming BIRCH: a row joins the nearest subcluster of its upstream group (LSH block, or one
+# group without LSH) if the subcluster's radius stays within the threshold, else starts a new
+# one. This is BIRCH's leaf absorb rule; the CF tree itself only speeds up the nearest search.
+class OnlineBirch:
+    name = "birch"
+
+    def __init__(self, threshold: float):
+        self.threshold = threshold
+        self.thresholds = [threshold]
+        self.groups: dict[int, _Subclusters] = {}
+        self.where: list[tuple[int, int]] = []
+
+    def insert(self, point: np.ndarray, group: int) -> int:
+        subclusters = self.groups.setdefault(group, _Subclusters())
+        size = len(subclusters.labels)
+        if size:
+            index = nearest(subclusters.centre[:size], subclusters.norm[:size], point)
+            radius = radius_if_added(
+                float(subclusters.count[index]), subclusters.linear[index], float(subclusters.square[index]), point, 1.0
+            )
+            if radius <= self.threshold:
+                subclusters.add(index, point)
+                return subclusters.labels[index]
+        label = len(self.where)
+        subclusters.create(point, label)
+        self.where.append((group, size))
+        return label
+
+    # A repeat of a genome already in this subcluster: added without the radius test.
+    def absorb(self, point: np.ndarray, label: int) -> None:
+        group, index = self.where[label]
+        self.groups[group].add(index, point)
+
+    def set_threshold(self, threshold: float) -> None:
+        self.threshold = threshold
+        self.thresholds.append(threshold)
+
+    def diagnostics(self) -> dict[str, Any]:
+        per_group = [len(g.labels) for g in self.groups.values()]
+        return {
+            "threshold": self.threshold,
+            "threshold_checkpoints": list(self.thresholds),
+            "groups": len(per_group),
+            "subclusters": len(self.where),
+            "mean_subclusters_per_group": float(np.mean(per_group)) if per_group else 0.0,
+            "rows_clustered": int(sum(float(g.count[: len(g.labels)].sum()) for g in self.groups.values())),
+            "clusters_after": len(self.where),
+        }

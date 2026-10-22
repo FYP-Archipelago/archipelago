@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import math
@@ -15,6 +14,7 @@ from ..config import (
 )
 from ..encoding.features import FeatureSet
 from .calibrate import neighbour_distance
+from .cf import radius_if_added
 
 
 class MicroCluster:
@@ -33,12 +33,7 @@ class MicroCluster:
         return self.cf1 / self.weight
 
     def radius_if_added(self, point: np.ndarray, weight: float) -> float:
-        w = self.weight + weight
-        cf1 = self.cf1 + point * weight
-        cf2 = self.cf2 + float(point @ point) * weight
-        centre = cf1 / w
-        variance = cf2 / w - float(centre @ centre)
-        return math.sqrt(max(variance, 0.0))
+        return radius_if_added(self.weight, self.cf1, self.cf2, point, weight)
 
     def add(self, point: np.ndarray, weight: float, now: float) -> None:
         self.weight += weight
@@ -319,3 +314,4 @@ class DenStreamStage:
 
     def diagnostics(self) -> dict[str, Any]:
         return self._diagnostics
+
