@@ -77,23 +77,24 @@ def _parents(value: Any) -> tuple[str, ...]:
     return tuple(str(v) for v in value)
 
 
+def parse_row(row: Mapping[str, Any], index: int) -> Evaluation:
+    return Evaluation(
+        island_id=_field(row, index, "island_id", int),
+        eval_index=_field(row, index, "eval_index", int),
+        seq=_field(row, index, "seq", int) if not _blank(row.get("seq")) else _field(row, index, "eval_index", int),
+        t_wall=_field(row, index, "t_wall", float),
+        individual_id=_field(row, index, "individual_id", str),
+        parent_ids=_parents(row.get("parent_ids")),
+        fitness=_field(row, index, "fitness", float),
+        genome_encoding=_field(row, index, "genome_encoding", str),
+        genome_hash=_field(row, index, "genome_hash", str),
+        genome_repr=None if _blank(row.get("genome_repr")) else str(row["genome_repr"]),
+        genome_repr_mode=_field(row, index, "genome_repr_mode", str),
+    )
+
+
 def parse_evaluations(rows: Sequence[Mapping[str, Any]]) -> list[Evaluation]:
-    return [
-        Evaluation(
-            island_id=_field(row, i, "island_id", int),
-            eval_index=_field(row, i, "eval_index", int),
-            seq=_field(row, i, "seq", int) if not _blank(row.get("seq")) else _field(row, i, "eval_index", int),
-            t_wall=_field(row, i, "t_wall", float),
-            individual_id=_field(row, i, "individual_id", str),
-            parent_ids=_parents(row.get("parent_ids")),
-            fitness=_field(row, i, "fitness", float),
-            genome_encoding=_field(row, i, "genome_encoding", str),
-            genome_hash=_field(row, i, "genome_hash", str),
-            genome_repr=None if _blank(row.get("genome_repr")) else str(row["genome_repr"]),
-            genome_repr_mode=_field(row, i, "genome_repr_mode", str),
-        )
-        for i, row in enumerate(rows)
-    ]
+    return [parse_row(row, i) for i, row in enumerate(rows)]
 
 
 def _optional_int(value: Any) -> int | None:
@@ -107,58 +108,82 @@ def _require(event: Mapping[str, Any], key: str) -> Any:
     return value
 
 
-def parse_events(events: Sequence[Mapping[str, Any]]) -> RunMeta:
+# What the events have said so far. Batch folds every event at once; streaming folds them as
+# they arrive (migration_arrive events go through the stream's ordering instead).
+@dataclass
+class EventLog:
     start: Mapping[str, Any] | None = None
     first_island: Mapping[str, Any] | None = None
-    clock_offsets: dict[int, float] = {}
-    started_islands: list[int] = []
+    clock_offsets: dict[int, float] = field(default_factory=dict)
+    started_islands: list[int] = field(default_factory=list)
+    ended_islands: set[int] = field(default_factory=set)
     maximising: bool | None = None
-    migrations: list[tuple[str, str]] = []
+    migrations: list[tuple[str, str]] = field(default_factory=list)
 
-    for event in events:
-        kind = event.get("type")
-        if kind == "run_start" and start is None:
-            start = event
-        elif kind == "island_start":
-            island_id = int(_require(event, "island_id"))
-            started_islands.append(island_id)
-            if first_island is None:
-                first_island = event
-            offset = event.get("clock_offset_ns")
-            if offset is not None:
-                clock_offsets[island_id] = offset / 1e9
-        elif kind == "generation_end" and maximising is None:
-            maximising = event.get("maximising")
-        elif kind == "migration_arrive":
-            origins = event.get("origin_individual_ids") or ()
-            arrived = event.get("arrived_individual_ids") or ()
-            migrations.extend((str(o), str(a)) for o, a in zip(origins, arrived))
 
-    if start is None:
-        raise SchemaError("no run_start event")
+def check_schema(start: Mapping[str, Any]) -> str:
     schema_version = str(_require(start, "schema_version"))
     if schema_version.split(".", 1)[0] != SUPPORTED_SCHEMA_MAJOR:
-        raise SchemaError(
-            f"log schema {schema_version} is not supported (expected {SUPPORTED_SCHEMA_MAJOR}.x)"
-        )
+        raise SchemaError(f"log schema {schema_version} is not supported (expected {SUPPORTED_SCHEMA_MAJOR}.x)")
+    return schema_version
 
+
+def migration_pairs(event: Mapping[str, Any]) -> list[tuple[str, str]]:
+    origins = event.get("origin_individual_ids") or ()
+    arrived = event.get("arrived_individual_ids") or ()
+    return [(str(o), str(a)) for o, a in zip(origins, arrived)]
+
+
+def apply_event(log: EventLog, event: Mapping[str, Any]) -> None:
+    kind = event.get("type")
+    if kind == "run_start" and log.start is None:
+        check_schema(event)
+        log.start = event
+    elif kind == "island_start":
+        island_id = int(_require(event, "island_id"))
+        log.started_islands.append(island_id)
+        if log.first_island is None:
+            log.first_island = event
+        offset = event.get("clock_offset_ns")
+        if offset is not None:
+            log.clock_offsets[island_id] = offset / 1e9
+    elif kind == "island_end":
+        log.ended_islands.add(int(_require(event, "island_id")))
+    elif kind == "generation_end" and log.maximising is None:
+        log.maximising = event.get("maximising")
+    elif kind == "migration_arrive":
+        log.migrations.extend(migration_pairs(event))
+
+
+def run_meta(log: EventLog) -> RunMeta:
+    start = log.start
+    if start is None:
+        raise SchemaError("no run_start event")
     datasets = start.get("datasets") or {}
+    maximising = log.maximising if log.maximising is not None else datasets.get("maximising", False)
     return RunMeta(
         run_id=str(_require(start, "run_id")),
         algorithm=str(_require(start, "algorithm")),
         benchmark=str(_require(start, "benchmark")),
         topology=(start.get("migration") or {}).get("topology"),
-        schema_version=schema_version,
-        maximising=bool(maximising if maximising is not None else datasets.get("maximising", False)),
+        schema_version=check_schema(start),
+        maximising=bool(maximising),
         num_islands=_optional_int(start.get("num_islands")),
         budget=_optional_int(start.get("evaluation_budget")),
         budget_per_island=_optional_int(start.get("evaluation_budget_per_island")),
-        genome_encoding=first_island.get("genome_encoding") if first_island else None,
-        benchmark_params=dict((first_island or {}).get("benchmark_params") or {}),
-        clock_offsets=clock_offsets,
-        started_islands=tuple(started_islands),
-        migrations=tuple(migrations),
+        genome_encoding=log.first_island.get("genome_encoding") if log.first_island else None,
+        benchmark_params=dict((log.first_island or {}).get("benchmark_params") or {}),
+        clock_offsets=dict(log.clock_offsets),
+        started_islands=tuple(log.started_islands),
+        migrations=tuple(log.migrations),
     )
+
+
+def parse_events(events: Sequence[Mapping[str, Any]]) -> RunMeta:
+    log = EventLog()
+    for event in events:
+        apply_event(log, event)
+    return run_meta(log)
 
 
 def parse_run(rows: Sequence[Mapping[str, Any]], events: Sequence[Mapping[str, Any]]) -> Run:
