@@ -39,13 +39,13 @@ def cluster_run(
     return result
 
 
-# cluster_run, also returning the per-row stage labels (input order, None when no stage ran)
+# cluster_run, also returning the per-row stage labels (input order)
 # so the parity script can compare partitions.
 def _cluster_run(
     evaluations: Sequence[Mapping[str, Any]],
     events: Sequence[Mapping[str, Any]],
     config: Config | Mapping[str, Any] | None = None,
-) -> tuple[Result, np.ndarray | None]:
+) -> tuple[Result, np.ndarray]:
     started = time.perf_counter()
     config = config if isinstance(config, Config) else Config.model_validate(config or {})
     run = parse_run(evaluations, events)
@@ -63,7 +63,7 @@ def _cluster_run(
     rows_without_genome = total - int(usable.size)
     if rows_without_genome:
         warnings.append(
-            f"{rows_without_genome} of {total} evaluations have no decodable genome and are left out of both graphs."
+            f"{rows_without_genome} of {total} evaluations have no decodable genome and are left out of the graph."
         )
 
     rows = build_rows(
@@ -71,32 +71,19 @@ def _cluster_run(
     )
     layout = project(features.matrix[usable], features.metric, config.seed)
 
+    # Baseline grouping is internal only: it applies the majority vote, so one genome is one node.
     baseline_group = group_baseline(features.islands[usable], [features.hashes[i] for i in usable.tolist()])
-    baseline = build_graph(
-        rows, baseline_group, layout.node_positions(baseline_group.row_node, baseline_group.island.size)
-    )
-
-    clustered = None
-    labels = None
-    diagnostics: dict[str, dict[str, Any]] = {}
-    resolved: dict[str, float | None] = dict.fromkeys(Resolved.model_fields)
-    if config.stages:
-        assignment = run_stages(features, config)
-        labels = assignment.labels
-        diagnostics = {
-            stage: {key: _clean(value) for key, value in values.items()}
-            for stage, values in assignment.diagnostics.items()
-        }
-        resolved = {key: _clean(value) for key, value in assignment.resolved.items()}
-        grouping, conflicts = group_clustered(baseline_group, labels[usable])
-        if conflicts:
-            warnings.append(
-                f"{conflicts} location(s) received more than one cluster label; the majority label was used."
-            )
-        weights = assignment.row_weights[usable] if assignment.row_weights is not None else None
-        clustered = build_graph(
-            rows, grouping, layout.node_positions(grouping.row_node, grouping.island.size), weights
-        )
+    assignment = run_stages(features, config)
+    labels = assignment.labels
+    diagnostics = {
+        stage: {key: _clean(value) for key, value in values.items()} for stage, values in assignment.diagnostics.items()
+    }
+    resolved = {key: _clean(value) for key, value in assignment.resolved.items()}
+    grouping, conflicts = group_clustered(baseline_group, labels[usable])
+    if conflicts:
+        warnings.append(f"{conflicts} location(s) received more than one cluster label; the majority label was used.")
+    weights = assignment.row_weights[usable] if assignment.row_weights is not None else None
+    graph = build_graph(rows, grouping, layout.node_positions(grouping.row_node, grouping.island.size), weights)
 
     result = Result(
         run=RunInfo(
@@ -112,15 +99,13 @@ def _cluster_run(
             variance_kept_2d=layout.variance_kept_2d,
             variance_kept_3d=layout.variance_kept_3d,
         ),
-        baseline=baseline,
-        clustered=clustered,
+        graph=graph,
         clustering=ClusteringInfo(
             stages=config.stages,
             counts=Counts(
                 evaluations=total,
-                rows_clustered=int(usable.size) if config.stages else 0,
-                baseline_nodes=int(baseline_group.island.size),
-                nodes=len(clustered.nodes.island) if clustered is not None else None,
+                rows_clustered=int(usable.size),
+                nodes=len(graph.nodes.island),
             ),
             resolved=Resolved(**resolved),
             diagnostics=diagnostics,

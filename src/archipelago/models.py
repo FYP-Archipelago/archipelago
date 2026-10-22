@@ -48,7 +48,7 @@ class Graph(BaseModel):
     nodes: Nodes
     edges: Edges
     migrations: Migrations
-    # Mean number of islands per occupied genome (baseline) or cluster (clustered).
+    # Mean number of islands per occupied cluster.
     overlap: float
 
 
@@ -70,8 +70,7 @@ class LayoutInfo(BaseModel):
 class Counts(BaseModel):
     evaluations: int
     rows_clustered: int
-    baseline_nodes: int
-    nodes: int | None
+    nodes: int
 
 
 class Resolved(BaseModel):
@@ -92,8 +91,7 @@ class ClusteringInfo(BaseModel):
 class Result(BaseModel):
     run: RunInfo
     layout: LayoutInfo
-    baseline: Graph
-    clustered: Graph | None
+    graph: Graph
     clustering: ClusteringInfo
     rows_without_genome: int
     warnings: list[str]

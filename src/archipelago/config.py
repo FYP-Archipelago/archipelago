@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # --- developer constants (not settable from the UI; edit here to change) ---
 
@@ -43,7 +43,7 @@ DETAIL_RANGE = (0.5, 2.0)
 LAYOUT_BY_METRIC = {"l2": "pca", "hamming": "pca", "jaccard": "mds"}
 
 
-# UI-facing settings. Config() means "no clustering, baseline only".
+# UI-facing settings. At least one stage must be enabled.
 # Stage order is fixed (LSH -> BIRCH -> DenStream); the flags only choose which ones run.
 # None on a distance means auto: measured from the run's own data, then divided by detail.
 # An explicit value is used as-is and ignores detail.
@@ -85,6 +85,12 @@ class Config(BaseModel):
     # Seeds the LSH projections, MinHash, feature hashing, calibration sampling and MDS
     # landmarks. Keeping it fixed makes the same logs and config give the same result.
     seed: int = 0
+
+    @model_validator(mode="after")
+    def _needs_a_stage(self) -> "Config":
+        if not (self.lsh or self.birch or self.denstream):
+            raise ValueError("enable at least one clustering stage: lsh, birch or denstream")
+        return self
 
     @property
     def stages(self) -> list[str]:
