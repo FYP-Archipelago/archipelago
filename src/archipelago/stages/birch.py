@@ -19,7 +19,7 @@ from .cf import nearest, radius_if_added
 MIN_BLOCK_TO_FIT = 3
 
 
-class BirchStage:
+class BatchBirch:
     name = "birch"
 
     def __init__(self, config: Config):
@@ -130,9 +130,7 @@ class _Subclusters:
 # Streaming BIRCH: a row joins the nearest subcluster of its upstream group (LSH block, or one
 # group without LSH) if the subcluster's radius stays within the threshold, else starts a new
 # one. This is BIRCH's leaf absorb rule; the CF tree itself only speeds up the nearest search.
-class OnlineBirch:
-    name = "birch"
-
+class StreamBirch:
     def __init__(self, threshold: float):
         self.threshold = threshold
         self.thresholds = [threshold]

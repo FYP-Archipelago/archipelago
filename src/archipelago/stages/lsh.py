@@ -16,7 +16,7 @@ from ..encoding.hashing import MinHasher
 from .calibrate import pair_distance
 
 
-class LSHStage:
+class BatchLSH:
     name = "lsh"
 
     def __init__(self, config: Config):
@@ -88,12 +88,10 @@ class LSHStage:
         return self._diagnostics
 
 
-# Streaming LSH: the same hash families and generator order as LSHStage, keyed per row as rows
+# Streaming LSH: the same hash families and generator order as BatchLSH, keyed per row as rows
 # arrive. The bucket width is fixed once (at warm-up), since keys hashed with different widths
 # can never collide.
-class OnlineLSH:
-    name = "lsh"
-
+class StreamLSH:
     def __init__(self, config: Config, metric: Metric, dimension: int, width: float | None):
         rng = np.random.default_rng(config.seed)
         self.metric = metric

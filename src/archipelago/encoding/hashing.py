@@ -18,19 +18,16 @@ def hash_tokens(tokens: list[bytes], seed: int) -> np.ndarray:
 
 
 # Project a set of element ids into `dimension` dims with signed hashing.
-def feature_hash(
-    element_ids: np.ndarray, dimension: int, seed: int, normalise: bool = True
-) -> np.ndarray:
+def feature_hash(element_ids: np.ndarray, dimension: int, seed: int) -> np.ndarray:
     vector = np.zeros(dimension, dtype=np.float64)
     if element_ids.size:
         mixed = (element_ids * np.uint64(0x9E3779B97F4A7C15)) ^ np.uint64(seed)
         index = (mixed % np.uint64(dimension)).astype(np.int64)
         sign = np.where((mixed >> np.uint64(63)) & np.uint64(1), -1.0, 1.0)
         np.add.at(vector, index, sign)
-    if normalise:
-        norm = np.linalg.norm(vector)
-        if norm > 0:
-            vector /= norm
+    norm = np.linalg.norm(vector)
+    if norm > 0:
+        vector /= norm
     return vector
 
 

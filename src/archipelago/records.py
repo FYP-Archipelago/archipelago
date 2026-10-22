@@ -31,11 +31,8 @@ class RunMeta:
     algorithm: str
     benchmark: str
     topology: str | None
-    schema_version: str
     maximising: bool
     genome_encoding: str | None
-    num_islands: int | None = None
-    budget: int | None = None
     budget_per_island: int | None = None
     benchmark_params: dict[str, Any] = field(default_factory=dict)
     clock_offsets: dict[int, float] = field(default_factory=dict)
@@ -121,13 +118,6 @@ class EventLog:
     migrations: list[tuple[str, str]] = field(default_factory=list)
 
 
-def check_schema(start: Mapping[str, Any]) -> str:
-    schema_version = str(_require(start, "schema_version"))
-    if schema_version.split(".", 1)[0] != SUPPORTED_SCHEMA_MAJOR:
-        raise SchemaError(f"log schema {schema_version} is not supported (expected {SUPPORTED_SCHEMA_MAJOR}.x)")
-    return schema_version
-
-
 def migration_pairs(event: Mapping[str, Any]) -> list[tuple[str, str]]:
     origins = event.get("origin_individual_ids") or ()
     arrived = event.get("arrived_individual_ids") or ()
@@ -137,7 +127,9 @@ def migration_pairs(event: Mapping[str, Any]) -> list[tuple[str, str]]:
 def apply_event(log: EventLog, event: Mapping[str, Any]) -> None:
     kind = event.get("type")
     if kind == "run_start" and log.start is None:
-        check_schema(event)
+        schema_version = str(_require(event, "schema_version"))
+        if schema_version.split(".", 1)[0] != SUPPORTED_SCHEMA_MAJOR:
+            raise SchemaError(f"log schema {schema_version} is not supported (expected {SUPPORTED_SCHEMA_MAJOR}.x)")
         log.start = event
     elif kind == "island_start":
         island_id = int(_require(event, "island_id"))
@@ -166,10 +158,7 @@ def run_meta(log: EventLog) -> RunMeta:
         algorithm=str(_require(start, "algorithm")),
         benchmark=str(_require(start, "benchmark")),
         topology=(start.get("migration") or {}).get("topology"),
-        schema_version=check_schema(start),
         maximising=bool(maximising),
-        num_islands=_optional_int(start.get("num_islands")),
-        budget=_optional_int(start.get("evaluation_budget")),
         budget_per_island=_optional_int(start.get("evaluation_budget_per_island")),
         genome_encoding=log.first_island.get("genome_encoding") if log.first_island else None,
         benchmark_params=dict((log.first_island or {}).get("benchmark_params") or {}),

@@ -11,7 +11,7 @@ from .config import Config
 from .encoding.features import build_features
 from .errors import SchemaError
 from .graph.grouping import majority_labels
-from .graph.layout import project
+from .graph.layout import fit, layout_info
 from .graph.state import (
     GraphState,
     add_edges,
@@ -20,7 +20,7 @@ from .graph.state import (
     columns,
     to_graph,
 )
-from .models import ClusteringInfo, Counts, LayoutInfo, Resolved, Result, RunInfo
+from .models import ClusteringInfo, Counts, Resolved, Result, RunInfo
 from .records import parse_run
 from .stages import run_stages
 
@@ -37,14 +37,20 @@ def _clean(value: Any) -> Any:
     return value
 
 
-def malformed_warning(malformed: list[str]) -> str:
-    named = ", ".join(malformed[:WARNING_ID_LIMIT])
-    more = ", ..." if len(malformed) > WARNING_ID_LIMIT else ""
-    return f"{len(malformed)} evaluation(s) have a malformed genome: {named}{more}"
+def clean_values(values: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: _clean(value) for key, value in values.items()}
 
 
-def missing_warning(missing: int, total: int) -> str:
-    return f"{missing} of {total} evaluations have no decodable genome and are left out of the graph."
+# Warnings for rows that can't be clustered: malformed genomes, then rows with no genome at all.
+def row_warnings(malformed: list[str], total: int, missing: int) -> list[str]:
+    warnings = []
+    if malformed:
+        named = ", ".join(malformed[:WARNING_ID_LIMIT])
+        more = ", ..." if len(malformed) > WARNING_ID_LIMIT else ""
+        warnings.append(f"{len(malformed)} evaluation(s) have a malformed genome: {named}{more}")
+    if missing:
+        warnings.append(f"{missing} of {total} evaluations have no decodable genome and are left out of the graph.")
+    return warnings
 
 
 # Batch mode: cluster a finished run's logs in one go, with whole-run calibration.
@@ -70,28 +76,21 @@ def _cluster_run(
     if run.meta.genome_encoding is None:
         raise SchemaError("no island_start events and no evaluations: the genome encoding is unknown")
 
-    warnings: list[str] = []
     features, malformed = build_features(run, config.seed)
-    if malformed:
-        warnings.append(malformed_warning(malformed))
     total = len(run.evaluations)
     usable = features.usable
     rows_without_genome = total - int(usable.size)
-    if rows_without_genome:
-        warnings.append(missing_warning(rows_without_genome, total))
+    warnings = row_warnings(malformed, total, rows_without_genome)
 
     assignment = run_stages(features, config)
     labels = assignment.labels
-    diagnostics = {
-        stage: {key: _clean(value) for key, value in values.items()} for stage, values in assignment.diagnostics.items()
-    }
-    resolved = {key: _clean(value) for key, value in assignment.resolved.items()}
+    diagnostics = {stage: clean_values(values) for stage, values in assignment.diagnostics.items()}
     hashes = [features.hashes[i] for i in usable.tolist()]
     node_labels, conflicts = majority_labels(features.islands[usable], hashes, labels[usable])
     if conflicts:
         warnings.append(f"{conflicts} location(s) received more than one cluster label; the majority label was used.")
 
-    layout = project(features.matrix[usable], features.metric, config.seed)
+    projection, coords = fit(features.matrix[usable], features.metric, config.seed)
     used = [run.evaluations[i] for i in usable.tolist()]
     state = GraphState(maximising=run.meta.maximising, weighted=assignment.row_weights is not None)
     add_rows(
@@ -102,7 +101,7 @@ def _cluster_run(
         np.array([ev.eval_index for ev in used], dtype=np.int64),
         np.array([ev.fitness for ev in used], dtype=np.float64),
         hashes,
-        layout.coords,
+        coords,
     )
     # Parents on another island are migrated copies; migrations cover those.
     lineage = [
@@ -139,16 +138,12 @@ def _cluster_run(
             islands=run.islands,
             maximising=run.meta.maximising,
         ),
-        layout=LayoutInfo(
-            method=layout.method,
-            variance_kept_2d=layout.variance_kept_2d,
-            variance_kept_3d=layout.variance_kept_3d,
-        ),
+        layout=layout_info(projection),
         graph=graph,
         clustering=ClusteringInfo(
             stages=config.stages,
             counts=Counts(evaluations=total, rows_clustered=int(usable.size), nodes=len(graph.nodes.id)),
-            resolved=Resolved(**resolved),
+            resolved=Resolved(**clean_values(assignment.resolved)),
             diagnostics=diagnostics,
             elapsed_seconds=time.perf_counter() - started,
         ),
@@ -174,7 +169,7 @@ def _cluster_run(
             }
             for i, ev in enumerate(run.evaluations)
         ],
-        "coords": layout.coords,
+        "coords": coords,
         "dead_nodes": dead,
         "migration_pairs": migrant_pairs,
         "maximising": run.meta.maximising,

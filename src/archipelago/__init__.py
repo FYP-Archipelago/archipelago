@@ -1,4 +1,4 @@
-from .api import cluster_run
+from .batch import cluster_run
 from .config import Config
 from .errors import ClusteringError, SchemaError, UnsupportedEncoding
 from .models import (

@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from .api import _clean, malformed_warning, missing_warning
+from .batch import clean_values, row_warnings
 from .config import (
     CALIBRATION_SAMPLE_SIZE,
     CHECKPOINT_FACTOR,
@@ -29,7 +29,7 @@ from .encoding.features import (
 )
 from .errors import ClusteringError, SchemaError, UnsupportedEncoding
 from .graph.delta import Sent, diff
-from .graph.layout import Projection, fit, transform
+from .graph.layout import Projection, fit, layout_info, transform
 from .graph.state import (
     GraphState,
     add_edges,
@@ -46,7 +46,6 @@ from .models import (
     EdgeChanges,
     Edges,
     GraphDelta,
-    LayoutInfo,
     MigrationChanges,
     Migrations,
     NodeChanges,
@@ -67,10 +66,10 @@ from .records import (
     parse_row,
     run_meta,
 )
-from .stages.birch import OnlineBirch
+from .stages.birch import StreamBirch
 from .stages.calibrate import neighbour_distance, pair_distance
-from .stages.denstream import OnlineDenStream
-from .stages.lsh import OnlineLSH
+from .stages.denstream import StreamDenStream
+from .stages.lsh import StreamLSH
 
 
 # Calibrated values are rounded so last-bit float differences between machines (BLAS builds)
@@ -146,9 +145,9 @@ class ClusterStream:
         self._row_release: list[int] = []
         self._row_clock: list[float] = []
 
-        self._lsh: OnlineLSH | None = None
-        self._birch: OnlineBirch | None = None
-        self._den: OnlineDenStream | None = None
+        self._lsh: StreamLSH | None = None
+        self._birch: StreamBirch | None = None
+        self._den: StreamDenStream | None = None
         # genome_hash -> [lsh, birch, denstream] labels of the genome's first row.
         self._cache: dict[str, list[int | None]] = {}
         self._stage_labels: dict[str, list[int | None]] = {"lsh": [], "birch": [], "den": []}
@@ -177,8 +176,7 @@ class ClusterStream:
         started = time.perf_counter()
         self._ingest(rows, events)
         self._take(release(self._order, self._log, final=False))
-        update = self._update(started)
-        return update
+        return self._update(started)
 
     def finish(self) -> Result:
         if self._finished:
@@ -199,7 +197,6 @@ class ClusterStream:
         graph = to_graph(columns(self._state, self._span))
         self._finished = True
         self._elapsed += time.perf_counter() - started
-        projection = self._projection
         return Result(
             run=RunInfo(
                 run_id=meta.run_id,
@@ -209,11 +206,7 @@ class ClusterStream:
                 islands=sorted(set(meta.started_islands) | set(self._span)),
                 maximising=self._maximising if self._warmed else meta.maximising,
             ),
-            layout=LayoutInfo(
-                method=projection.method if projection else "none",
-                variance_kept_2d=projection.variance_kept_2d if projection else 0.0,
-                variance_kept_3d=projection.variance_kept_3d if projection else 0.0,
-            ),
+            layout=layout_info(self._projection),
             graph=graph,
             clustering=self._info(diagnostics, len(graph.nodes.id)),
             rows_without_genome=len(self._released) - sum(self._usable),
@@ -368,9 +361,7 @@ class ClusterStream:
     def _warm_up(self, finishing: bool) -> None:
         rows = self._buffer
         self._buffer = []
-        meta = run_meta(self._log) if self._log.start is not None else None
-        if meta is None:
-            raise SchemaError("no run_start event")
+        meta = run_meta(self._log)
         self._maximising = meta.maximising
         assert self._adapter is not None
         self._store = FeatureStore(metric=self._adapter.metric)
@@ -384,9 +375,9 @@ class ClusterStream:
                 width = _round(
                     max(pair_distance(matrix, CALIBRATION_SAMPLE_SIZE, LSH_WIDTH_PERCENTILE, config.seed), 1e-12)
                 )
-            self._lsh = OnlineLSH(config, self._store.metric, self._dimension, width)
+            self._lsh = StreamLSH(config, self._store.metric, self._dimension, width)
         if config.birch:
-            self._birch = OnlineBirch(self._birch_threshold(matrix))
+            self._birch = StreamBirch(self._birch_threshold(matrix))
         self._state = GraphState(maximising=meta.maximising, weighted=config.denstream)
         self._projection, coords = fit(matrix, self._store.metric, config.seed)
         self._process(rows, coords, stored=True, warm=finishing)
@@ -476,17 +467,16 @@ class ClusterStream:
         if self.config.denstream:
             if self._den is None:
                 count = self._store.count
-                self._den = OnlineDenStream(
-                    self.config, self._denstream_epsilon(count), self._half_life(count, finishing=warm), matrix.shape[1], 0.0
+                self._den = StreamDenStream(
+                    self.config, self._denstream_epsilon(count), self._half_life(count, finishing=warm), matrix.shape[1]
                 )
             upstream = birch_labels if self._birch is not None else lsh_labels
             for i, entry in enumerate(entries):
                 cached = None if first[i] else entry[2]
-                prunes_before = len(self._den.prunes)
                 label, how[i], gone = self._den.insert(matrix[i], rows[i].clock, cached, upstream[i])
                 entry[2] = den_labels[i] = label
-                pruned.extend(gone)
-                if len(self._den.prunes) > prunes_before:
+                if gone is not None:
+                    pruned.extend(gone)
                     self._prunes.append({"after_usable_row": start + i, "clock": rows[i].clock, "pruned": gone})
         self._stage_labels["den"].extend(den_labels)
         if not self._checkpoints:
@@ -561,7 +551,7 @@ class ClusterStream:
             out["birch"] = self._birch.diagnostics()
         if self._den is not None:
             out["denstream"] = self._den.diagnostics(final)
-        return {stage: {k: _clean(v) for k, v in values.items()} for stage, values in out.items()}
+        return {stage: clean_values(values) for stage, values in out.items()}
 
     def _info(self, diagnostics: dict[str, dict[str, Any]], nodes: int) -> ClusteringInfo:
         return ClusteringInfo(
@@ -571,19 +561,13 @@ class ClusterStream:
                 rows_clustered=self._store.count if self._store is not None else 0,
                 nodes=nodes,
             ),
-            resolved=Resolved(**{k: _clean(v) for k, v in self._resolved.items()}),
+            resolved=Resolved(**clean_values(self._resolved)),
             diagnostics=diagnostics,
             elapsed_seconds=self._elapsed,
         )
 
     def _warnings(self) -> list[str]:
-        warnings = []
-        if self._malformed:
-            warnings.append(malformed_warning(self._malformed))
-        missing = len(self._released) - sum(self._usable)
-        if missing:
-            warnings.append(missing_warning(missing, len(self._released)))
-        return warnings
+        return row_warnings(self._malformed, len(self._released), len(self._released) - sum(self._usable))
 
     def _update(self, started: float) -> Update:
         if not self._warmed or self._state is None:
@@ -604,21 +588,11 @@ class ClusterStream:
         refit = self._refit
         self._refit = False
         delta = diff(self._sent, cols, state.nodes, state.edges, state.migrations, refit)
-        projection = self._projection
-        layout = (
-            LayoutInfo(
-                method=projection.method,
-                variance_kept_2d=projection.variance_kept_2d,
-                variance_kept_3d=projection.variance_kept_3d,
-            )
-            if refit and projection is not None
-            else None
-        )
         diagnostics = self._diagnostics(final=False)
         self._elapsed += time.perf_counter() - started
         return Update.model_construct(
             status="live",
-            layout=layout,
+            layout=layout_info(self._projection) if refit else None,
             clustering=self._info(diagnostics, int(cols["id"].size)),
             rows_without_genome=len(self._released) - sum(self._usable),
             warnings=self._warnings(),

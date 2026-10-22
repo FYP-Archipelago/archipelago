@@ -11,7 +11,7 @@ INT_MAX = np.iinfo(np.int64).max
 INT_MIN = np.iinfo(np.int64).min
 
 
-def _grow(array: np.ndarray, size: int, fill: float | bool = 0) -> np.ndarray:
+def grow(array: np.ndarray, size: int, fill: float | bool = 0) -> np.ndarray:
     if array.shape[0] >= size:
         return array
     grown = np.full((max(size, 2 * array.shape[0], 64), *array.shape[1:]), fill, dtype=array.dtype)
@@ -67,19 +67,19 @@ class GraphState:
 def _new_node(state: GraphState, island: int, label: int, genome_hash: str) -> int:
     node = state.nodes
     size = node + 1
-    state.island = _grow(state.island, size)
-    state.label = _grow(state.label, size)
-    state.visits = _grow(state.visits, size)
-    state.members = _grow(state.members, size)
-    state.fit_sum = _grow(state.fit_sum, size)
-    state.fit_min = _grow(state.fit_min, size, np.inf)
-    state.fit_max = _grow(state.fit_max, size, -np.inf)
-    state.eval_sum = _grow(state.eval_sum, size)
-    state.first_eval = _grow(state.first_eval, size, INT_MAX)
-    state.last_eval = _grow(state.last_eval, size, INT_MIN)
-    state.coord_sum = _grow(state.coord_sum, size)
-    state.alive = _grow(state.alive, size)
-    state.weight = _grow(state.weight, size)
+    state.island = grow(state.island, size)
+    state.label = grow(state.label, size)
+    state.visits = grow(state.visits, size)
+    state.members = grow(state.members, size)
+    state.fit_sum = grow(state.fit_sum, size)
+    state.fit_min = grow(state.fit_min, size, np.inf)
+    state.fit_max = grow(state.fit_max, size, -np.inf)
+    state.eval_sum = grow(state.eval_sum, size)
+    state.first_eval = grow(state.first_eval, size, INT_MAX)
+    state.last_eval = grow(state.last_eval, size, INT_MIN)
+    state.coord_sum = grow(state.coord_sum, size)
+    state.alive = grow(state.alive, size)
+    state.weight = grow(state.weight, size)
     state.island[node] = island
     state.label[node] = label
     state.alive[node] = True
@@ -90,7 +90,7 @@ def _new_node(state: GraphState, island: int, label: int, genome_hash: str) -> i
     return node
 
 
-# Add usable rows (in processing order) under their labels. Returns each row's node id.
+# Add usable rows (in processing order) under their labels.
 def add_rows(
     state: GraphState,
     individual_id: Sequence[str],
@@ -100,7 +100,7 @@ def add_rows(
     fitness: np.ndarray,
     genome_hash: Sequence[str],
     coords: np.ndarray,
-) -> np.ndarray:
+) -> None:
     count = len(individual_id)
     start = state.rows
     node = np.empty(count, dtype=np.int64)
@@ -123,14 +123,13 @@ def add_rows(
     np.add.at(state.coord_sum, node, coords)
 
     size = start + count
-    state.row_node = _grow(state.row_node, size)
-    state.row_fitness = _grow(state.row_fitness, size)
-    state.row_coords = _grow(state.row_coords, size)
+    state.row_node = grow(state.row_node, size)
+    state.row_fitness = grow(state.row_fitness, size)
+    state.row_coords = grow(state.row_coords, size)
     state.row_node[start:size] = node
     state.row_fitness[start:size] = fitness
     state.row_coords[start:size] = coords
     state.rows = size
-    return node
 
 
 def _link(
@@ -141,8 +140,8 @@ def _link(
     if index is None:
         index = of[key] = size
         size += 1
-        pairs = _grow(pairs, size)
-        totals = _grow(totals, size)
+        pairs = grow(pairs, size)
+        totals = grow(totals, size)
         pairs[index] = key
     totals[index] += 1
     return pairs, totals, size
@@ -168,11 +167,10 @@ def add_migrations(state: GraphState, row_pairs: Sequence[tuple[int, int]]) -> N
             )
 
 
-# Mark every node carrying one of these labels as dead. Returns the ids that died.
-def kill_labels(state: GraphState, labels: Sequence[int]) -> list[int]:
+# Mark every node carrying one of these labels as dead.
+def kill_labels(state: GraphState, labels: Sequence[int]) -> None:
     died = [node for label in labels for node in state.nodes_of_label.get(int(label), ())]
     state.alive[died] = False
-    return died
 
 
 # Replace every row's layout coordinates (after a layout refit) and re-derive the node sums.
@@ -237,7 +235,6 @@ def columns(state: GraphState, span: dict[int, int]) -> dict[str, np.ndarray | l
     return {
         "id": ids,
         "island": island,
-        "label": label,
         "x": position[:, 0],
         "y": position[:, 1],
         "z": position[:, 2],

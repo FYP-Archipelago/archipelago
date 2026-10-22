@@ -49,7 +49,6 @@ class FeatureSet:
 
 class Adapter(Protocol):
     metric: Metric
-    dimension: int
 
     # Dense vector, plus element ids for the set-valued spaces.
     def encode(self, genome: Any) -> tuple[np.ndarray, np.ndarray | None]: ...
@@ -59,9 +58,8 @@ class Adapter(Protocol):
 class RealVectorAdapter:
     metric = Metric.L2
 
-    def __init__(self, encoding: str, dimension: int, lower: float | None, upper: float | None):
+    def __init__(self, encoding: str, lower: float | None, upper: float | None):
         self.encoding = encoding
-        self.dimension = dimension
         self.lower = lower
         self.upper = upper
         self.normalised = lower is not None and upper is not None and upper > lower
@@ -75,9 +73,6 @@ class RealVectorAdapter:
 
 class BitstringAdapter:
     metric = Metric.HAMMING
-
-    def __init__(self, dimension: int):
-        self.dimension = dimension
 
     def encode(self, genome: Any) -> tuple[np.ndarray, np.ndarray | None]:
         return np.asarray(genome, dtype=np.float64), None
@@ -155,16 +150,9 @@ def build_adapter(encoding: str, benchmark_params: dict[str, Any], seed: int) ->
         genome_mod.REAL_VECTOR_VELOCITY,
         genome_mod.REAL_VECTOR_SIGMA,
     ):
-        return RealVectorAdapter(
-            encoding,
-            int(benchmark_params.get("dimension", 0)),
-            benchmark_params.get("lower"),
-            benchmark_params.get("upper"),
-        )
+        return RealVectorAdapter(encoding, benchmark_params.get("lower"), benchmark_params.get("upper"))
     if encoding == genome_mod.BITSTRING:
-        return BitstringAdapter(
-            int(benchmark_params.get("num_items", benchmark_params.get("dimension", 0)))
-        )
+        return BitstringAdapter()
     if encoding == genome_mod.PERMUTATION:
         return PermutationAdapter(
             int(benchmark_params.get("num_cities", benchmark_params.get("dimension", 0))), seed

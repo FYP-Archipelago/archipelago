@@ -8,18 +8,9 @@ from sklearn.decomposition import PCA
 
 from ..config import LAYOUT_BY_METRIC, MDS_LANDMARKS
 from ..encoding.features import Metric
+from ..models import LayoutInfo
 
 COMPONENTS = 3
-
-
-# One projection of the run's usable rows into [-1, 1]^3.
-@dataclass(frozen=True)
-class Layout:
-    method: str
-    # Scaled position of every usable row, shape (rows, 3).
-    coords: np.ndarray
-    variance_kept_2d: float
-    variance_kept_3d: float
 
 
 # A fitted projection that can place rows it wasn't fitted on: raw components, then the
@@ -107,7 +98,12 @@ def transform(projection: Projection, matrix: np.ndarray) -> np.ndarray:
     return np.clip(_scale(projection.raw(matrix), projection.low, projection.span), -1.0, 1.0)
 
 
-# Batch mode: fit on every usable row and place them all.
-def project(matrix: np.ndarray, metric: Metric, seed: int) -> Layout:
-    projection, coords = fit(matrix, metric, seed)
-    return Layout(projection.method, coords, projection.variance_kept_2d, projection.variance_kept_3d)
+# None when no projection was ever fitted (no usable rows).
+def layout_info(projection: Projection | None) -> LayoutInfo:
+    if projection is None:
+        return LayoutInfo(method="none", variance_kept_2d=0.0, variance_kept_3d=0.0)
+    return LayoutInfo(
+        method=projection.method,
+        variance_kept_2d=projection.variance_kept_2d,
+        variance_kept_3d=projection.variance_kept_3d,
+    )

@@ -16,7 +16,7 @@ from ..models import (
     Positions,
     WeightChanges,
 )
-from .state import nodes_model
+from .state import grow, nodes_model
 
 # Node fields that can change after a node is first sent, compared exactly.
 CHANGING = (
@@ -36,14 +36,6 @@ CHANGING = (
     "z",
 )
 POSITION = ("x", "y", "z")
-
-
-def _grow(array: np.ndarray, size: int, fill: float) -> np.ndarray:
-    if array.shape[0] >= size:
-        return array
-    grown = np.full(max(size, 2 * array.shape[0], 64), fill, dtype=array.dtype)
-    grown[: array.shape[0]] = array
-    return grown
 
 
 # What the viewer was last sent, per node / edge / migration id.
@@ -71,11 +63,11 @@ def _changes(cols: dict, select: np.ndarray, model: type, names: tuple[str, ...]
 def diff(sent: Sent, cols: dict, nodes: int, edges: int, migrations: int, refit: bool) -> GraphDelta:
     weighted = cols["weight"] is not None
     names = (*CHANGING, "fitness_percentile", "weight") if weighted else (*CHANGING, "fitness_percentile")
-    sent.flag = _grow(sent.flag, nodes, False)
+    sent.flag = grow(sent.flag, nodes, False)
     for name in names:
-        sent.values[name] = _grow(sent.values.get(name, np.zeros(0)), nodes, 0.0)
-    sent.edge_weight = _grow(sent.edge_weight, edges, -1)
-    sent.migration_count = _grow(sent.migration_count, migrations, -1)
+        sent.values[name] = grow(sent.values.get(name, np.zeros(0)), nodes, 0.0)
+    sent.edge_weight = grow(sent.edge_weight, edges, -1)
+    sent.migration_count = grow(sent.migration_count, migrations, -1)
 
     ids = cols["id"]
     was = sent.flag[ids]

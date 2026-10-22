@@ -18,14 +18,13 @@ from .cf import radius_if_added
 
 
 class MicroCluster:
-    __slots__ = ("weight", "cf1", "cf2", "created_at", "last_at", "label")
+    __slots__ = ("weight", "cf1", "cf2", "created_at", "label")
 
     def __init__(self, point: np.ndarray, weight: float, now: float, label: int):
         self.weight = weight
         self.cf1 = point * weight
         self.cf2 = float(point @ point) * weight
         self.created_at = now
-        self.last_at = now
         self.label = label
 
     @property
@@ -39,10 +38,15 @@ class MicroCluster:
         self.weight += weight
         self.cf1 += point * weight
         self.cf2 += float(point @ point) * weight
-        self.last_at = now
 
 
-class DenStreamStage:
+def prune_period_for(potential_threshold: float, lam: float) -> float:
+    if potential_threshold > 1.0:
+        return math.ceil(math.log2(potential_threshold / (potential_threshold - 1.0)) / lam)
+    return math.inf
+
+
+class BatchDenStream:
     name = "denstream"
 
     def __init__(self, config: Config):
@@ -112,12 +116,7 @@ class DenStreamStage:
 
         mu, beta = self.config.denstream_mu, self.config.denstream_beta
         potential_threshold = beta * mu
-        if potential_threshold > 1.0:
-            prune_period = math.ceil(
-                math.log2(potential_threshold / (potential_threshold - 1.0)) / lam
-            )
-        else:
-            prune_period = math.inf
+        prune_period = prune_period_for(potential_threshold, lam)
 
         assignments, clusters, stats = self._stream(
             points, weights, times, epsilon, lam, potential_threshold, prune_period
@@ -295,49 +294,36 @@ class DenStreamStage:
         epsilon: float,
         mu: float,
         stats: dict[str, Any],
-    ) -> dict[int, int]:
+    ) -> None:
         potential = [c for c in clusters.values() if c.weight >= mu]
         stats["potential_micro_clusters"] = len(potential)
         if not potential:
-            return {}
+            return
         centres = np.stack([c.centre for c in potential])
         weights = np.array([c.weight for c in potential])
         # sklearn compares min_samples against total sample_weight but types it int.
         model = DBSCAN(eps=2.0 * epsilon, min_samples=max(1, int(round(mu))))
         found = model.fit_predict(centres, sample_weight=weights)
         stats["macro_clusters"] = int(len({f for f in found if f >= 0}))
-        return {
-            cluster.label: int(macro)
-            for cluster, macro in zip(potential, found)
-            if macro >= 0
-        }
 
     def diagnostics(self) -> dict[str, Any]:
         return self._diagnostics
 
 
-def prune_period_for(potential_threshold: float, lam: float) -> float:
-    if potential_threshold > 1.0:
-        return math.ceil(math.log2(potential_threshold / (potential_threshold - 1.0)) / lam)
-    return math.inf
-
-
 # Streaming DenStream: the batch stream loop, one row at a time. Every row arrives with weight 1
 # at its own clock time; micro-clusters fade and are pruned exactly as in batch, and a pruned
 # label never comes back (a revisit starts a new micro-cluster).
-class OnlineDenStream:
-    name = "denstream"
-
-    def __init__(self, config: Config, epsilon: float, half_life: float, dimension: int, start: float):
-        self.mu, self.beta = config.denstream_mu, config.denstream_beta
-        self.potential_threshold = self.beta * self.mu
+class StreamDenStream:
+    def __init__(self, config: Config, epsilon: float, half_life: float, dimension: int):
+        self.mu = config.denstream_mu
+        self.potential_threshold = config.denstream_beta * self.mu
         self.epsilon = epsilon
         self.half_life = half_life
         self.lam = 1.0 / half_life
         self.prune_period = prune_period_for(self.potential_threshold, self.lam)
-        self.reference = start
-        self.next_prune = start + self.prune_period
-        self.now = start
+        self.reference = 0.0
+        self.next_prune = self.prune_period
+        self.now = 0.0
         self.clusters: dict[int, MicroCluster] = {}
         self.next_label = 0
         self.centres = np.zeros((64, dimension))
@@ -352,8 +338,7 @@ class OnlineDenStream:
         self.input_points = 0
         self.epsilons = [epsilon]
         self.half_lives = [half_life]
-        self.lambda_segments: list[tuple[float, float]] = [(start, self.lam)]
-        self.prunes: list[tuple[float, list[int]]] = []
+        self.lambda_segments: list[tuple[float, float]] = [(0.0, self.lam)]
 
     def alive(self, label: int | None) -> bool:
         return label is not None and label in self.clusters
@@ -393,16 +378,14 @@ class OnlineDenStream:
         return None
 
     # Place one row. Returns its micro-cluster label, how it was placed (cache, group, search or
-    # new), and the labels pruned right after it.
+    # new), and the labels pruned right after it (None if no prune ran, [] if one removed nothing).
     def insert(
         self, point: np.ndarray, now: float, cached: int | None, group: int | None
-    ) -> tuple[int, str, list[int]]:
+    ) -> tuple[int, str, list[int] | None]:
         self.now = now
         self.input_points += 1
         inflated = 2.0 ** (self.lam * (now - self.reference))
         scale = 2.0 ** (-self.lam * (now - self.reference))
-        how = "new"
-        target = None
         if self.alive(cached):
             target, how = self.clusters[cached], "cache"
         elif group is not None and self.alive(self.fed.get(group)):
@@ -425,17 +408,16 @@ class OnlineDenStream:
         if group is not None:
             self.fed[group] = target.label
 
-        pruned: list[int] = []
+        pruned = None
         if now >= self.next_prune:
             before = set(self.clusters)
-            self.counters["micro_clusters_pruned"] += DenStreamStage._prune(
+            self.counters["micro_clusters_pruned"] += BatchDenStream._prune(
                 self.clusters, now, self.reference, self.lam, self.potential_threshold, self.prune_period
             )
             pruned = sorted(before - set(self.clusters))
-            self.reference = DenStreamStage._rescale(self.clusters, now, self.reference, self.lam)
+            self.reference = BatchDenStream._rescale(self.clusters, now, self.reference, self.lam)
             self.next_prune = now + self.prune_period
             self._compact()
-            self.prunes.append((now, pruned))
         return target.label, how, pruned
 
     def set_epsilon(self, epsilon: float) -> None:
@@ -444,7 +426,7 @@ class OnlineDenStream:
 
     # Weights so far were decayed with the old lambda; bring them to now first, then switch.
     def set_half_life(self, half_life: float) -> None:
-        self.reference = DenStreamStage._rescale(self.clusters, self.now, self.reference, self.lam)
+        self.reference = BatchDenStream._rescale(self.clusters, self.now, self.reference, self.lam)
         self.half_life = half_life
         self.lam = 1.0 / half_life
         self.prune_period = prune_period_for(self.potential_threshold, self.lam)
@@ -472,7 +454,7 @@ class OnlineDenStream:
         }
         if final:
             stats: dict[str, Any] = {"macro_clusters": 0}
-            self.reference = DenStreamStage._rescale(self.clusters, self.now, self.reference, self.lam)
-            DenStreamStage._macro_clusters(self.clusters, self.epsilon, self.mu, stats)
+            self.reference = BatchDenStream._rescale(self.clusters, self.now, self.reference, self.lam)
+            BatchDenStream._macro_clusters(self.clusters, self.epsilon, self.mu, stats)
             out.update(stats)
         return out

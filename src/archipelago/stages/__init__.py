@@ -7,9 +7,9 @@ import numpy as np
 
 from ..config import Config
 from ..encoding.features import FeatureSet
-from .birch import BirchStage
-from .denstream import DenStreamStage
-from .lsh import LSHStage
+from .birch import BatchBirch
+from .denstream import BatchDenStream
+from .lsh import BatchLSH
 
 
 class ClusterStage(Protocol):
@@ -48,11 +48,11 @@ def run_stages(features: FeatureSet, config: Config) -> Assignment:
 
     stages: list[ClusterStage] = []
     if config.lsh:
-        stages.append(LSHStage(config))
+        stages.append(BatchLSH(config))
     if config.birch:
-        stages.append(BirchStage(config))
+        stages.append(BatchBirch(config))
     if config.denstream:
-        stages.append(DenStreamStage(config))
+        stages.append(BatchDenStream(config))
 
     row_weights = None
     for stage in stages:
