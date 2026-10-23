@@ -53,9 +53,7 @@ class BatchLSH:
         assert features.sets is not None
         signatures = np.empty((rows.size, count), dtype=np.int64)
         for out_row, source_row in enumerate(rows):
-            signatures[out_row] = hasher.signature(features.sets[source_row])[
-                :count
-            ].astype(np.int64)
+            signatures[out_row] = hasher.signature(features.sets[source_row])[:count].astype(np.int64)
         self._diagnostics["family"] = "minhash"
         return signatures
 

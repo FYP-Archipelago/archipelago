@@ -190,9 +190,7 @@ def parse_run(rows: Sequence[Mapping[str, Any]], events: Sequence[Mapping[str, A
         raise UnsupportedEncoding(f"unsupported genome encoding: {encoding}")
     for i, ev in enumerate(evaluations):
         if ev.genome_encoding != encoding:
-            raise SchemaError(
-                f"evaluation row {i}: genome_encoding {ev.genome_encoding!r} differs from the run's {encoding!r}"
-            )
+            raise SchemaError(f"evaluation row {i}: genome_encoding {ev.genome_encoding!r} differs from the run's {encoding!r}")
 
     islands = sorted(set(meta.started_islands) | {ev.island_id for ev in evaluations})
     return Run(meta=meta, evaluations=evaluations, islands=islands)

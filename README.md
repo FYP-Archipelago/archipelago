@@ -4,27 +4,40 @@
 
 This module is its clustering engine. Standard search trajectory networks (STNs) are built for a single population and don't scale to large runs. It builds them for island-model runs with per-island trajectories, migration edges, and genotypic clustering using LSH, BIRCH, DenStream or any combination of them. It also measures how separated the islands are in genome space, using MMD with random Fourier features. Runs can be clustered after they finish, or live with the network updating as the run progresses.
 
-## Installation
+## Package Installation
 
 Requires Python 3.12+.
 
 ```bash
-pip install git+https://github.com/FYP-Archipelago/archipelago@<ref>
+pip install git+https://github.com/FYP-Archipelago/archipelago
 ```
 
 or, in a `uv` project:
 
 ```bash
-uv add git+https://github.com/FYP-Archipelago/archipelago --rev <ref>
+uv add git+https://github.com/FYP-Archipelago/archipelago
 ```
 
 ## Development
 
-```bash
-git clone https://github.com/FYP-Archipelago/archipelago
-cd archipelago
-uv sync
-```
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/FYP-Archipelago/archipelago
+   cd archipelago
+   ```
+
+2. Install the dependencies:
+
+   ```bash
+   uv sync
+   ```
+
+3. Install the pre-commit hooks:
+
+   ```bash
+   uv run pre-commit install
+   ```
 
 ## LICENSE
 

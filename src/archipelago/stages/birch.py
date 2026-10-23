@@ -79,9 +79,7 @@ class BatchBirch:
             {
                 "blocks_fitted": fitted,
                 "blocks_too_small_to_fit": skipped,
-                "mean_subclusters_per_fitted_block": (
-                    float(np.mean(subcluster_counts)) if subcluster_counts else 0.0
-                ),
+                "mean_subclusters_per_fitted_block": (float(np.mean(subcluster_counts)) if subcluster_counts else 0.0),
                 "rows_clustered": int(rows.size),
             }
         )
@@ -142,9 +140,7 @@ class StreamBirch:
         size = len(subclusters.labels)
         if size:
             index = nearest(subclusters.centre[:size], subclusters.norm[:size], point)
-            radius = radius_if_added(
-                float(subclusters.count[index]), subclusters.linear[index], float(subclusters.square[index]), point, 1.0
-            )
+            radius = radius_if_added(float(subclusters.count[index]), subclusters.linear[index], float(subclusters.square[index]), point, 1.0)
             if radius <= self.threshold:
                 subclusters.add(index, point)
                 return subclusters.labels[index]

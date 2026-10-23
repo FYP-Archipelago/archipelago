@@ -67,9 +67,7 @@ def _gap(sum_a: np.ndarray, n_a: float, sum_b: np.ndarray, n_b: float) -> float:
 
 # MMD^2 between two islands, and how often random generation swaps match or beat it. Whole
 # generations move, not single evaluations, because a child sits next to its parent.
-def swap_test(
-    sums_a: np.ndarray, counts_a: np.ndarray, sums_b: np.ndarray, counts_b: np.ndarray, rng: np.random.Generator
-) -> tuple[float, float]:
+def swap_test(sums_a: np.ndarray, counts_a: np.ndarray, sums_b: np.ndarray, counts_b: np.ndarray, rng: np.random.Generator) -> tuple[float, float]:
     total_a, total_b = sums_a.sum(axis=0), sums_b.sum(axis=0)
     n_a, n_b = counts_a.sum(), counts_b.sum()
     observed = _gap(total_a, n_a, total_b, n_b)
@@ -88,9 +86,7 @@ def swap_test(
 # and every pair per window of generations at that window's own scale (one whole-run scale is set
 # by the wide early search and makes a contracted late population look the same everywhere).
 # Rows are put in (island, seq) order first, so batch and streaming give the same answer.
-def island_separation(
-    x: np.ndarray, islands: np.ndarray, generations: np.ndarray, seq: np.ndarray, seed: int
-) -> Separation:
+def island_separation(x: np.ndarray, islands: np.ndarray, generations: np.ndarray, seq: np.ndarray, seed: int) -> Separation:
     order = np.lexsort((seq, islands))
     x, islands, generations = x[order], islands[order], generations[order]
     keys = sorted(int(i) for i in np.unique(islands))

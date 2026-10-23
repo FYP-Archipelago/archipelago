@@ -112,9 +112,7 @@ def _cluster_run(
         if parent is not None and used[parent].island_id == ev.island_id
     ]
     add_edges(state, lineage)
-    migrant_pairs = [
-        (origin, arrived) for origin, arrived in run.meta.migrations if origin in state.row_of and arrived in state.row_of
-    ]
+    migrant_pairs = [(origin, arrived) for origin, arrived in run.meta.migrations if origin in state.row_of and arrived in state.row_of]
     add_migrations(state, [(state.row_of[origin], state.row_of[arrived]) for origin, arrived in migrant_pairs])
     dead: list[int] = []
     if assignment.row_weights is not None:

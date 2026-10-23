@@ -18,7 +18,7 @@ from .cf import radius_if_added
 
 
 class MicroCluster:
-    __slots__ = ("weight", "cf1", "cf2", "created_at", "label")
+    __slots__ = ("cf1", "cf2", "created_at", "label", "weight")
 
     def __init__(self, point: np.ndarray, weight: float, now: float, label: int):
         self.weight = weight
@@ -100,12 +100,15 @@ class BatchDenStream:
         points, weights, times, row_to_point = self._summarise(features, groups, rows)
         epsilon = self.config.denstream_epsilon
         if epsilon is None:
-            epsilon = neighbour_distance(
-                points,
-                CALIBRATION_SAMPLE_SIZE,
-                NEIGHBOUR_PERCENTILE,
-                self.config.seed,
-            ) / self.config.detail
+            epsilon = (
+                neighbour_distance(
+                    points,
+                    CALIBRATION_SAMPLE_SIZE,
+                    NEIGHBOUR_PERCENTILE,
+                    self.config.seed,
+                )
+                / self.config.detail
+            )
         epsilon = max(float(epsilon), 1e-12)
 
         span = float(times.max() - times.min()) if times.size else 1.0
@@ -118,20 +121,13 @@ class BatchDenStream:
         potential_threshold = beta * mu
         prune_period = prune_period_for(potential_threshold, lam)
 
-        assignments, clusters, stats = self._stream(
-            points, weights, times, epsilon, lam, potential_threshold, prune_period
-        )
+        assignments, clusters, stats = self._stream(points, weights, times, epsilon, lam, potential_threshold, prune_period)
         self._macro_clusters(clusters, epsilon, mu, stats)
 
         point_labels = np.asarray(assignments, dtype=np.int64)
         labels[rows] = point_labels[row_to_point]
 
-        final_weights = np.array(
-            [
-                clusters[label].weight if label in clusters else 0.0
-                for label in point_labels
-            ]
-        )
+        final_weights = np.array([clusters[label].weight if label in clusters else 0.0 for label in point_labels])
         self.row_weights = np.zeros(len(features))
         self.row_weights[rows] = final_weights[row_to_point]
 
@@ -210,12 +206,8 @@ class BatchDenStream:
                 for candidate_position in nearest[np.argsort(distances[nearest])]:
                     candidate = clusters[int(labels_at[candidate_position])]
                     if candidate.radius_if_added(point, inflated) <= epsilon:
-                        merged_potential += int(
-                            candidate.weight * current_scale >= potential_threshold
-                        )
-                        merged_outlier += int(
-                            candidate.weight * current_scale < potential_threshold
-                        )
+                        merged_potential += int(candidate.weight * current_scale >= potential_threshold)
+                        merged_outlier += int(candidate.weight * current_scale < potential_threshold)
                         target = candidate
                         break
 
@@ -232,9 +224,7 @@ class BatchDenStream:
             assignments.append(target.label)
 
             if now >= next_prune:
-                pruned += self._prune(
-                    clusters, now, reference, lam, potential_threshold, prune_period
-                )
+                pruned += self._prune(clusters, now, reference, lam, potential_threshold, prune_period)
                 reference = self._rescale(clusters, now, reference, lam)
                 next_prune = now + prune_period
                 compact()
@@ -242,13 +232,17 @@ class BatchDenStream:
         # Put every survivor's weight on the same footing: the final instant.
         final = float(times[-1]) if times.size else reference
         self._rescale(clusters, final, reference, lam)
-        return assignments, clusters, {
-            "micro_clusters_created": created,
-            "micro_clusters_pruned": pruned,
-            "merges_into_potential": merged_potential,
-            "merges_into_outlier": merged_outlier,
-            "micro_clusters_surviving": len(clusters),
-        }
+        return (
+            assignments,
+            clusters,
+            {
+                "micro_clusters_created": created,
+                "micro_clusters_pruned": pruned,
+                "merges_into_potential": merged_potential,
+                "merges_into_outlier": merged_outlier,
+                "micro_clusters_surviving": len(clusters),
+            },
+        )
 
     # Drop faded clusters, using the decaying outlier threshold.
     @staticmethod
@@ -302,9 +296,9 @@ class BatchDenStream:
         centres = np.stack([c.centre for c in potential])
         weights = np.array([c.weight for c in potential])
         # sklearn compares min_samples against total sample_weight but types it int.
-        model = DBSCAN(eps=2.0 * epsilon, min_samples=max(1, int(round(mu))))
+        model = DBSCAN(eps=2.0 * epsilon, min_samples=max(1, round(mu)))
         found = model.fit_predict(centres, sample_weight=weights)
-        stats["macro_clusters"] = int(len({f for f in found if f >= 0}))
+        stats["macro_clusters"] = len({f for f in found if f >= 0})
 
     def diagnostics(self) -> dict[str, Any]:
         return self._diagnostics
@@ -332,9 +326,7 @@ class StreamDenStream:
         self.live = 0
         # The micro-cluster each upstream group last fed.
         self.fed: dict[int, int] = {}
-        self.counters = dict.fromkeys(
-            ("micro_clusters_created", "micro_clusters_pruned", "merges_into_potential", "merges_into_outlier"), 0
-        )
+        self.counters = dict.fromkeys(("micro_clusters_created", "micro_clusters_pruned", "merges_into_potential", "merges_into_outlier"), 0)
         self.input_points = 0
         self.epsilons = [epsilon]
         self.half_lives = [half_life]
@@ -379,9 +371,7 @@ class StreamDenStream:
 
     # Place one row. Returns its micro-cluster label, how it was placed (cache, group, search or
     # new), and the labels pruned right after it (None if no prune ran, [] if one removed nothing).
-    def insert(
-        self, point: np.ndarray, now: float, cached: int | None, group: int | None
-    ) -> tuple[int, str, list[int] | None]:
+    def insert(self, point: np.ndarray, now: float, cached: int | None, group: int | None) -> tuple[int, str, list[int] | None]:
         self.now = now
         self.input_points += 1
         inflated = 2.0 ** (self.lam * (now - self.reference))

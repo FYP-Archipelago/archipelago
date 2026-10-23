@@ -259,9 +259,7 @@ class ClusterStream:
             self._encoding = encoding
             self._adapter = build_adapter(encoding, dict((first or {}).get("benchmark_params") or {}), self.config.seed)
         if ev.genome_encoding != self._encoding:
-            raise SchemaError(
-                f"evaluation {ev.individual_id}: genome_encoding {ev.genome_encoding!r} differs from the run's {self._encoding!r}"
-            )
+            raise SchemaError(f"evaluation {ev.individual_id}: genome_encoding {ev.genome_encoding!r} differs from the run's {self._encoding!r}")
         return self._adapter
 
     def _take_row(self, ev: Evaluation) -> None:
@@ -308,9 +306,7 @@ class ClusterStream:
     def _birch_threshold(self, matrix: np.ndarray) -> float:
         if self.config.birch_threshold is not None:
             return float(self.config.birch_threshold)
-        measured = max(
-            neighbour_distance(matrix, CALIBRATION_SAMPLE_SIZE, NEIGHBOUR_PERCENTILE, self.config.seed), 1e-12
-        )
+        measured = max(neighbour_distance(matrix, CALIBRATION_SAMPLE_SIZE, NEIGHBOUR_PERCENTILE, self.config.seed), 1e-12)
         return _round(self._detail(measured))
 
     # DenStream's merge radius is measured on the points it effectively streams: the upstream
@@ -375,9 +371,7 @@ class ClusterStream:
         if config.lsh:
             width = None
             if self._store.metric is Metric.L2:
-                width = _round(
-                    max(pair_distance(matrix, CALIBRATION_SAMPLE_SIZE, LSH_WIDTH_PERCENTILE, config.seed), 1e-12)
-                )
+                width = _round(max(pair_distance(matrix, CALIBRATION_SAMPLE_SIZE, LSH_WIDTH_PERCENTILE, config.seed), 1e-12))
             self._lsh = StreamLSH(config, self._store.metric, self._dimension, width)
         if config.birch:
             self._birch = StreamBirch(self._birch_threshold(matrix))
@@ -470,9 +464,7 @@ class ClusterStream:
         if self.config.denstream:
             if self._den is None:
                 count = self._store.count
-                self._den = StreamDenStream(
-                    self.config, self._denstream_epsilon(count), self._half_life(count, finishing=warm), matrix.shape[1]
-                )
+                self._den = StreamDenStream(self.config, self._denstream_epsilon(count), self._half_life(count, finishing=warm), matrix.shape[1])
             upstream = birch_labels if self._birch is not None else lsh_labels
             for i, entry in enumerate(entries):
                 cached = None if first[i] else entry[2]
@@ -653,9 +645,7 @@ class ClusterStream:
             "checkpoints": [dict(c) for c in self._checkpoints],
             "prunes": [dict(p) for p in self._prunes],
             "denstream": (
-                {"lambda_segments": list(den.lambda_segments), "alive": den.weights(), "final_clock": den.now}
-                if den is not None
-                else None
+                {"lambda_segments": list(den.lambda_segments), "alive": den.weights(), "final_clock": den.now} if den is not None else None
             ),
             "migration_pairs": list(self._resolved_pairs),
             "maximising": self._maximising,
