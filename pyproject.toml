@@ -3,6 +3,7 @@ name = "archipelago"
 version = "0.2.0"
 description = "Clusters distributed-EA run logs into search trajectory networks"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = ["numpy>=2.0", "scikit-learn>=1.5", "pydantic>=2.8"]
 
