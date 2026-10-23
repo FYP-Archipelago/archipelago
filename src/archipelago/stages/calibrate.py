@@ -12,8 +12,8 @@ def _subsample(matrix: np.ndarray, size: int, seed: int) -> np.ndarray:
     return matrix[rng.choice(n, size=size, replace=False)]
 
 
+# Percentile of distances between random pairs. The global spread.
 def pair_distance(matrix: np.ndarray, sample_size: int, percentile: float, seed: int, pairs: int = 20000) -> float:
-    """Percentile of distances between random pairs. The global spread."""
     if matrix.shape[0] < 2:
         return 1.0
     sample = _subsample(matrix, sample_size, seed)
@@ -29,8 +29,8 @@ def pair_distance(matrix: np.ndarray, sample_size: int, percentile: float, seed:
     return float(np.percentile(positive, percentile)) if positive.size else 1.0
 
 
+# Percentile of nearest-neighbour distances. The local density scale.
 def neighbour_distance(matrix: np.ndarray, sample_size: int, percentile: float, seed: int) -> float:
-    """Percentile of nearest-neighbour distances. The local density scale."""
     if matrix.shape[0] < 2:
         return 1.0
     sample = _subsample(matrix, sample_size, seed)

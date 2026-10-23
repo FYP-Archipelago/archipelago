@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import struct
 from typing import Any
@@ -22,12 +21,10 @@ ENCODINGS = frozenset({
     EXPRESSION_TREE,
 })
 
-# PSO and ES carry search state next to the position. Signature and features use the
-# position only: velocity is how a particle intends to move, not where it is. Include
+# PSO and ES carry search state next to the position. Features use the position
+# only: velocity is how a particle intends to move, not where it is. Include
 # it and one location splits into as many nodes as there were arrival directions.
 COMPOSITE_POSITION_KEY = {REAL_VECTOR_VELOCITY: "x", REAL_VECTOR_SIGMA: "x"}
-
-HASH_DIGEST_SIZE = 16
 
 
 class GenomeError(ValueError):
@@ -81,28 +78,3 @@ def position(genome: Any, encoding: str) -> Any:
     key = COMPOSITE_POSITION_KEY.get(encoding)
     return genome[key] if key else genome
 
-
-def _format_coordinate(value: float, precision: int) -> str:
-    text = f"{value:.{precision}f}"
-    if text.startswith("-") and float(text) == 0.0:
-        return text[1:]
-    return text
-
-
-def signature(genome: Any, encoding: str, precision: int) -> str:
-    where = position(genome, encoding)
-    if encoding in (REAL_VECTOR, REAL_VECTOR_VELOCITY, REAL_VECTOR_SIGMA):
-        body = ",".join(_format_coordinate(v, precision) for v in where)
-    elif encoding == BITSTRING:
-        body = "".join(str(int(b)) for b in where)
-    elif encoding == PERMUTATION:
-        body = ",".join(str(int(i)) for i in where)
-    elif encoding == EXPRESSION_TREE:
-        body = where
-    else:
-        raise GenomeError(f"unknown encoding: {encoding}")
-    return f"{encoding}|{body}"
-
-
-def location_hash(genome: Any, encoding: str, precision: int) -> str:
-    return hashlib.blake2b(signature(genome, encoding, precision).encode(), digest_size=HASH_DIGEST_SIZE).hexdigest()

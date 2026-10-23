@@ -1,48 +1,31 @@
-# dEA-clustering
+# archipelago
 
-## Quick Start
+**Archipelago** is an explainability platform for distributed (island-model) evolutionary algorithms.
 
-**Install**
+This module is its clustering engine. Standard search trajectory networks (STNs) are built for a single population and don't scale to large runs. It builds them for island-model runs with per-island trajectories, migration edges, and genotypic clustering using LSH, BIRCH, DenStream or any combination of them. It also measures how separated the islands are in genome space, using MMD with random Fourier features. Runs can be clustered after they finish, or live with the network updating as the run progresses.
 
-```bash
-uv pip install -e .
-```
+## Installation
 
-**Build STN with no clustering (Level-0)**
+Requires Python 3.12+.
 
 ```bash
-uv run cluster run-logs/<run-dir>
+pip install git+https://github.com/FYP-Archipelago/archipelago@<ref>
 ```
 
-**Build STN with all stages enabled**
+or, in a `uv` project:
 
 ```bash
-uv run cluster run-logs/<run-dir> --lsh --birch --denstream
+uv add git+https://github.com/FYP-Archipelago/archipelago --rev <ref>
 ```
 
-**Custom config**
+## Development
 
 ```bash
-uv run cluster run-logs/<run-dir> --lsh --birch --denstream -c config/default.yaml
+git clone https://github.com/FYP-Archipelago/archipelago
+cd archipelago
+uv sync
 ```
 
-**Plot**
+## LICENSE
 
-```bash
-# 3D STN  →  out/<run>/stn.png
-uv run cluster run-logs/<run-dir> --lsh --birch --denstream --plot
-
-# Fitness-plotted STN  →  out/<run>/fitness-stn.png
-uv run cluster run-logs/<run-dir> --lsh --birch --denstream --fplot
-```
-
-**Island separation**
-
-```bash
-# MMD between islands via random Fourier features  →  out/<run>/separation.json
-uv run cluster run-logs/<run-dir> --mmd
-```
-
-Works on every encoding the feature adapters support. `separation.json` holds each island
-pair's MMD² over the whole run with a generation-swap p-value, and the median pair per
-10-generation window, each window compared at its own scale (`typical_distance`).
+The project is licensed under the [MIT License](LICENSE).

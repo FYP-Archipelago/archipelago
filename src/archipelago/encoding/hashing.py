@@ -12,31 +12,27 @@ def _digest(token: bytes, seed: int) -> int:
     )
 
 
+# Stable integer ids for set elements, so MinHash and the hashing agree.
 def hash_tokens(tokens: list[bytes], seed: int) -> np.ndarray:
-    """Stable integer ids for set elements, so MinHash and the hashing agree."""
     return np.array([_digest(t, seed) for t in tokens], dtype=np.uint64)
 
 
-def feature_hash(
-    element_ids: np.ndarray, dimension: int, seed: int, normalise: bool = True
-) -> np.ndarray:
-    """Project a set of element ids into `dimension` dims with signed hashing."""
+# Project a set of element ids into `dimension` dims with signed hashing.
+def feature_hash(element_ids: np.ndarray, dimension: int, seed: int) -> np.ndarray:
     vector = np.zeros(dimension, dtype=np.float64)
     if element_ids.size:
         mixed = (element_ids * np.uint64(0x9E3779B97F4A7C15)) ^ np.uint64(seed)
         index = (mixed % np.uint64(dimension)).astype(np.int64)
         sign = np.where((mixed >> np.uint64(63)) & np.uint64(1), -1.0, 1.0)
         np.add.at(vector, index, sign)
-    if normalise:
-        norm = np.linalg.norm(vector)
-        if norm > 0:
-            vector /= norm
+    norm = np.linalg.norm(vector)
+    if norm > 0:
+        vector /= norm
     return vector
 
 
+# Classic (a*x + b) mod p MinHash. P[collision] is exactly the Jaccard.
 class MinHasher:
-    """Classic (a*x + b) mod p MinHash. P[collision] is exactly the Jaccard."""
-
     MERSENNE_PRIME = (1 << 61) - 1
 
     def __init__(self, num_perm: int, seed: int):
