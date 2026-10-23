@@ -21,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument("--plot", action="store_true", help="Plot the base STN and clustered STNs (saved to stn.png)")
     parser.add_argument("--fplot", action="store_true", help="Plot the STN with nodes plotted by fitness (saved to fitness-stn.png)")
+    parser.add_argument("--mmd", action="store_true", help="Measure how separate the islands are: MMD via random Fourier features (saved to separation.json)")
     parser.add_argument("-o", "--out", type=Path, default=None, help="Output directory (default out/<run id>)")
 
     parser.add_argument("-c", "--config", type=Path, default=None, help="Custom YAML config path; see config/default.yaml")
@@ -77,6 +78,19 @@ def main(argv: list[str] | None = None) -> int:
             stages=stages,
         )
 
+    # Measure island separation if --mmd is set
+    separation = None
+    if args.mmd:
+        from .features.registry import build_features
+        from .reader import RunDirectory
+        from .separation import island_separation, write_separation
+
+        run_dir = RunDirectory(args.run)
+        metadata = run_dir.read_metadata()
+        features, _ = build_features(run_dir, metadata, config)
+        separation = island_separation(features, config.seed)
+        write_separation(result.out_dir, separation, metadata.run_id)
+
     # Extract run statistics from manifest
     manifest = json.loads((result.out_dir / "manifest.json").read_text())
     counts = manifest["counts"]
@@ -101,12 +115,18 @@ def main(argv: list[str] | None = None) -> int:
         f" {counts['self_loops']:,} self-loops\n"
     )
     
+    if separation is not None and separation["pairs"]:
+        pairs = sorted(p["mmd2"] for p in separation["pairs"])
+        print(f"islands   median pair MMD^2 {pairs[len(pairs) // 2]:.2g} (random Fourier features)\n")
+
     print(f"Pipeline ran successfully in {result.elapsed_seconds:.2f}s")
     saved = []
     if image:
         saved.append("stn.png")
     if fimage:
         saved.append("fitness-stn.png")
+    if separation is not None:
+        saved.append("separation.json")
     suffix = f" ({', '.join(saved)} saved)" if saved else ""
     print(f"Artifacts saved to {result.out_dir}{suffix}")
     return 0
