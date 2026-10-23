@@ -150,7 +150,12 @@ def _cluster_run(
         ),
         clustering=ClusteringInfo(
             stages=config.stages,
-            counts=Counts(evaluations=total, rows_clustered=int(usable.size), nodes=len(graph.nodes.id)),
+            counts=Counts(
+                evaluations=total,
+                rows_clustered=int(usable.size),
+                nodes=len(graph.nodes.id),
+                faded_nodes=len(dead) if assignment.row_weights is not None else None,
+            ),
             resolved=Resolved(**clean_values(assignment.resolved)),
             diagnostics=diagnostics,
             elapsed_seconds=time.perf_counter() - started,

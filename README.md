@@ -2,7 +2,7 @@
 
 **Archipelago** is an explainability platform for distributed (island-model) evolutionary algorithms.
 
-This module is its clustering engine. Standard search trajectory networks (STNs) are built for a single population and don't scale to large runs. It builds them for island-model runs with per-island trajectories, migration edges, and genotypic clustering using LSH, BIRCH, DenStream or any combination of them. It works on a finished run or streams the network live.
+This module is its clustering engine. Standard search trajectory networks (STNs) are built for a single population and don't scale to large runs. It builds them for island-model runs with per-island trajectories, migration edges, and genotypic clustering using LSH, BIRCH, DenStream or any combination of them. It also measures how separated the islands are in genome space, using MMD with random Fourier features. Runs can be clustered after they finish, or live with the network updating as the run progresses.
 
 ## Installation
 

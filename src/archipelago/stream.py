@@ -574,6 +574,7 @@ class ClusterStream:
                 evaluations=len(self._released),
                 rows_clustered=self._store.count if self._store is not None else 0,
                 nodes=nodes,
+                faded_nodes=(self._state.nodes - nodes if self._state is not None else 0) if self.config.denstream else None,
             ),
             resolved=Resolved(**clean_values(self._resolved)),
             diagnostics=diagnostics,

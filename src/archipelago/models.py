@@ -77,6 +77,8 @@ class Counts(BaseModel):
     evaluations: int
     rows_clustered: int
     nodes: int
+    # Nodes DenStream faded out (their micro-cluster was pruned); None without DenStream.
+    faded_nodes: int | None
 
 
 class Resolved(BaseModel):
