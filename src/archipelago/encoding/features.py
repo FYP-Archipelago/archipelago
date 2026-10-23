@@ -155,9 +155,7 @@ def build_adapter(encoding: str, benchmark_params: dict[str, Any], seed: int) ->
     if encoding == genome_mod.BITSTRING:
         return BitstringAdapter()
     if encoding == genome_mod.PERMUTATION:
-        return PermutationAdapter(
-            int(benchmark_params.get("num_cities", benchmark_params.get("dimension", 0))), seed
-        )
+        return PermutationAdapter(int(benchmark_params.get("num_cities", benchmark_params.get("dimension", 0))), seed)
     if encoding == genome_mod.EXPRESSION_TREE:
         return ExpressionTreeAdapter(seed)
     raise ValueError(f"no feature adapter for encoding: {encoding}")

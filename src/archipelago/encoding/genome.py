@@ -12,14 +12,16 @@ BITSTRING = "bitstring"
 PERMUTATION = "permutation"
 EXPRESSION_TREE = "expression_tree"
 
-ENCODINGS = frozenset({
-    REAL_VECTOR,
-    REAL_VECTOR_VELOCITY,
-    REAL_VECTOR_SIGMA,
-    BITSTRING,
-    PERMUTATION,
-    EXPRESSION_TREE,
-})
+ENCODINGS = frozenset(
+    {
+        REAL_VECTOR,
+        REAL_VECTOR_VELOCITY,
+        REAL_VECTOR_SIGMA,
+        BITSTRING,
+        PERMUTATION,
+        EXPRESSION_TREE,
+    }
+)
 
 # PSO and ES carry search state next to the position. Features use the position
 # only: velocity is how a particle intends to move, not where it is. Include
@@ -77,4 +79,3 @@ def decode(repr_str: str | None, mode: str, encoding: str) -> Any:
 def position(genome: Any, encoding: str) -> Any:
     key = COMPOSITE_POSITION_KEY.get(encoding)
     return genome[key] if key else genome
-

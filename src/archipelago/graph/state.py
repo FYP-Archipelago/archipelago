@@ -152,9 +152,7 @@ def add_edges(state: GraphState, row_pairs: Sequence[tuple[int, int]]) -> None:
     for parent, child in row_pairs:
         source, target = int(state.row_node[parent]), int(state.row_node[child])
         if source != target:
-            state.edge_pair, state.edge_weight, state.edges = _link(
-                state.edge_of, state.edge_pair, state.edge_weight, state.edges, source, target
-            )
+            state.edge_pair, state.edge_weight, state.edges = _link(state.edge_of, state.edge_pair, state.edge_weight, state.edges, source, target)
 
 
 # (origin row, arrived row) migrant pairs, in resolution order.
@@ -207,11 +205,7 @@ def columns(state: GraphState, span: dict[int, int]) -> dict[str, np.ndarray | l
     edge_pair = state.edge_pair[: state.edges]
     edge_live = np.flatnonzero(alive[edge_pair[:, 0]] & alive[edge_pair[:, 1]]) if state.edges else np.empty(0, np.int64)
     migration_pair = state.migration_pair[: state.migrations]
-    migration_live = (
-        np.flatnonzero(alive[migration_pair[:, 0]] & alive[migration_pair[:, 1]])
-        if state.migrations
-        else np.empty(0, np.int64)
-    )
+    migration_live = np.flatnonzero(alive[migration_pair[:, 0]] & alive[migration_pair[:, 1]]) if state.migrations else np.empty(0, np.int64)
     in_degree = np.bincount(edge_pair[edge_live, 1], minlength=state.nodes)[ids]
     out_degree = np.bincount(edge_pair[edge_live, 0], minlength=state.nodes)[ids]
     endpoint = np.zeros(state.nodes, dtype=bool)

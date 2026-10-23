@@ -77,11 +77,7 @@ def release(order: Order, log: EventLog, final: bool) -> list[Item]:
     if not final and not _ready(log):
         return []
     offsets = log.clock_offsets
-    heads = [
-        (queue[0].t_wall + offsets.get(island, 0.0), island, queue[0].seq)
-        for island, queue in order.queues.items()
-        if queue
-    ]
+    heads = [(queue[0].t_wall + offsets.get(island, 0.0), island, queue[0].seq) for island, queue in order.queues.items() if queue]
     heapq.heapify(heads)
     started = set(log.started_islands)
     out: list[Item] = []
