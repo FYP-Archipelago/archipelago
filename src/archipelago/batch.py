@@ -22,6 +22,7 @@ from .graph.state import (
 )
 from .models import ClusteringInfo, Counts, Resolved, Result, RunInfo
 from .records import parse_run
+from .separation import island_separation
 from .stages import run_stages
 
 # How many malformed individual ids a warning names before it truncates.
@@ -140,6 +141,13 @@ def _cluster_run(
         ),
         layout=layout_info(projection),
         graph=graph,
+        separation=island_separation(
+            features.matrix[usable],
+            features.islands[usable],
+            features.generations[usable],
+            np.array([ev.seq for ev in used], dtype=np.int64),
+            config.seed,
+        ),
         clustering=ClusteringInfo(
             stages=config.stages,
             counts=Counts(evaluations=total, rows_clustered=int(usable.size), nodes=len(graph.nodes.id)),
@@ -160,6 +168,7 @@ def _cluster_run(
                 "island_id": ev.island_id,
                 "seq": ev.seq,
                 "eval_index": ev.eval_index,
+                "generation": ev.generation,
                 "fitness": ev.fitness,
                 "genome_hash": ev.genome_hash,
                 "parent_ids": list(ev.parent_ids),

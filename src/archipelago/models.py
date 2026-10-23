@@ -94,11 +94,45 @@ class ClusteringInfo(BaseModel):
     elapsed_seconds: float
 
 
+# One entry per island pair over the whole run. mmd2: how different the two populations are
+# (0 = identical); p: generation-swap test, small = a real difference.
+class SeparationPairs(BaseModel):
+    a: list[int]
+    b: list[int]
+    mmd2: list[float]
+    p: list[float]
+
+
+# One entry per window of generations, each with its own distance scale.
+class SeparationWindows(BaseModel):
+    from_generation: list[int]
+    typical_distance: list[float]
+
+
+# One entry per (window, island pair) with both islands present; window indexes into windows.
+class SeparationWindowPairs(BaseModel):
+    window: list[int]
+    a: list[int]
+    b: list[int]
+    mmd2: list[float]
+
+
+# How separate the islands are in genome space (MMD via random Fourier features).
+class Separation(BaseModel):
+    method: Literal["mmd-random-fourier-features"]
+    # Typical distance between two genomes in the run: the scale MMD measures against.
+    typical_distance: float | None
+    pairs: SeparationPairs
+    windows: SeparationWindows
+    window_pairs: SeparationWindowPairs
+
+
 class Result(BaseModel):
     run: RunInfo
     layout: LayoutInfo
     graph: Graph
     clustering: ClusteringInfo
+    separation: Separation
     rows_without_genome: int
     warnings: list[str]
 

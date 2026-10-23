@@ -54,6 +54,7 @@ from .models import (
     Resolved,
     Result,
     RunInfo,
+    Separation,
     Update,
     WeightChanges,
 )
@@ -66,6 +67,7 @@ from .records import (
     parse_row,
     run_meta,
 )
+from .separation import island_separation
 from .stages.birch import StreamBirch
 from .stages.calibrate import neighbour_distance, pair_distance
 from .stages.denstream import StreamDenStream
@@ -208,6 +210,7 @@ class ClusterStream:
             ),
             layout=layout_info(self._projection),
             graph=graph,
+            separation=self._separation(),
             clustering=self._info(diagnostics, len(graph.nodes.id)),
             rows_without_genome=len(self._released) - sum(self._usable),
             warnings=self._warnings(),
@@ -543,6 +546,17 @@ class ClusterStream:
         alive = np.flatnonzero(state.alive[: state.nodes])
         state.weight[alive] = [weights[int(label)] for label in state.label[alive].tolist()]
 
+    def _separation(self) -> Separation:
+        evs = [self._released[i] for i in self._row_release]
+        matrix = self._store.rows if self._store is not None else np.zeros((0, 0))
+        return island_separation(
+            matrix,
+            np.array([ev.island_id for ev in evs], dtype=np.int64),
+            np.array([ev.generation for ev in evs], dtype=np.int64),
+            np.array([ev.seq for ev in evs], dtype=np.int64),
+            self.config.seed,
+        )
+
     def _diagnostics(self, final: bool) -> dict[str, dict[str, Any]]:
         out: dict[str, dict[str, Any]] = {}
         if self._lsh is not None:
@@ -614,6 +628,7 @@ class ClusterStream:
                     "island_id": ev.island_id,
                     "seq": ev.seq,
                     "eval_index": ev.eval_index,
+                    "generation": ev.generation,
                     "fitness": ev.fitness,
                     "genome_hash": ev.genome_hash,
                     "parent_ids": list(ev.parent_ids),

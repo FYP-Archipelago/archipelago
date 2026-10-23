@@ -36,6 +36,7 @@ class FeatureSet:
     mask: np.ndarray
     times: np.ndarray
     islands: np.ndarray
+    generations: np.ndarray
     sets: list[np.ndarray] | None = None
 
     def __len__(self) -> int:
@@ -210,6 +211,7 @@ def build_features(run: Run, seed: int) -> tuple[FeatureSet, list[str]]:
     mask: list[bool] = []
     times: list[float] = []
     islands: list[int] = []
+    generations: list[int] = []
     malformed: list[str] = []
     width = 0
 
@@ -217,6 +219,7 @@ def build_features(run: Run, seed: int) -> tuple[FeatureSet, list[str]]:
         hashes.append(ev.genome_hash)
         times.append(run.corrected_time(ev))
         islands.append(ev.island_id)
+        generations.append(ev.generation)
         try:
             encoded = encode(adapter, ev)
         except DECODE_ERRORS:
@@ -245,6 +248,7 @@ def build_features(run: Run, seed: int) -> tuple[FeatureSet, list[str]]:
         mask=np.asarray(mask, dtype=bool),
         times=np.asarray(times, dtype=np.float64),
         islands=np.asarray(islands, dtype=np.int64),
+        generations=np.asarray(generations, dtype=np.int64),
         sets=sets if adapter.metric is Metric.JACCARD else None,
     )
     return features, malformed

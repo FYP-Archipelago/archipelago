@@ -13,6 +13,7 @@ SUPPORTED_SCHEMA_MAJOR = "2"
 class Evaluation(NamedTuple):
     island_id: int
     eval_index: int
+    generation: int
     # Per-island record counter shared with the event stream; orders an island's records.
     seq: int
     t_wall: float
@@ -78,6 +79,7 @@ def parse_row(row: Mapping[str, Any], index: int) -> Evaluation:
     return Evaluation(
         island_id=_field(row, index, "island_id", int),
         eval_index=_field(row, index, "eval_index", int),
+        generation=_field(row, index, "generation", int),
         seq=_field(row, index, "seq", int) if not _blank(row.get("seq")) else _field(row, index, "eval_index", int),
         t_wall=_field(row, index, "t_wall", float),
         individual_id=_field(row, index, "individual_id", str),
