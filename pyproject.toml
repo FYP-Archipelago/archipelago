@@ -1,11 +1,14 @@
 [project]
 name = "archipelago"
-version = "0.2.0"
-description = "Clusters distributed-EA run logs into search trajectory networks"
+version = "0.3.0"
+description = "Clustering engine for distributed-EA runs, building island-aware search trajectory networks (STNs) live or after the run"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = ["numpy>=2.0", "scikit-learn>=1.5", "pydantic>=2.8"]
+
+[project.urls]
+Repository = "https://github.com/FYP-Archipelago/archipelago"
 
 [build-system]
 requires = ["hatchling"]
