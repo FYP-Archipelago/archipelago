@@ -22,3 +22,6 @@ packages = ["src/archipelago"]
 
 [tool.ruff]
 line-length = 150
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
