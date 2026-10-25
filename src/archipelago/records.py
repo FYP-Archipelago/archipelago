@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
@@ -75,6 +76,16 @@ def _parents(value: Any) -> tuple[str, ...]:
     return tuple(str(v) for v in value)
 
 
+# Native JSON rows carry structured genomes (e.g. PSO's {"x", "v"}) as objects; serialise them
+# the way the runner's CSV writer does, so both row shapes give the same string.
+def _genome_repr(value: Any) -> str | None:
+    if _blank(value):
+        return None
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, separators=(",", ":"))
+
+
 def parse_row(row: Mapping[str, Any], index: int) -> Evaluation:
     return Evaluation(
         island_id=_field(row, index, "island_id", int),
@@ -87,7 +98,7 @@ def parse_row(row: Mapping[str, Any], index: int) -> Evaluation:
         fitness=_field(row, index, "fitness", float),
         genome_encoding=_field(row, index, "genome_encoding", str),
         genome_hash=_field(row, index, "genome_hash", str),
-        genome_repr=None if _blank(row.get("genome_repr")) else str(row["genome_repr"]),
+        genome_repr=_genome_repr(row.get("genome_repr")),
         genome_repr_mode=_field(row, index, "genome_repr_mode", str),
     )
 
