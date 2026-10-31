@@ -23,7 +23,7 @@ class Evaluation(NamedTuple):
     fitness: float
     genome_encoding: str
     genome_hash: str
-    genome_repr: str | None
+    genome_repr: str
     genome_repr_mode: str
 
 
@@ -78,9 +78,7 @@ def _parents(value: Any) -> tuple[str, ...]:
 
 # Native JSON rows carry structured genomes (e.g. PSO's {"x", "v"}) as objects; serialise them
 # the way the runner's CSV writer does, so both row shapes give the same string.
-def _genome_repr(value: Any) -> str | None:
-    if _blank(value):
-        return None
+def _genome_repr(value: Any) -> str:
     if isinstance(value, str):
         return value
     return json.dumps(value, separators=(",", ":"))
@@ -91,14 +89,14 @@ def parse_row(row: Mapping[str, Any], index: int) -> Evaluation:
         island_id=_field(row, index, "island_id", int),
         eval_index=_field(row, index, "eval_index", int),
         generation=_field(row, index, "generation", int),
-        seq=_field(row, index, "seq", int) if not _blank(row.get("seq")) else _field(row, index, "eval_index", int),
+        seq=_field(row, index, "seq", int),
         t_wall=_field(row, index, "t_wall", float),
         individual_id=_field(row, index, "individual_id", str),
         parent_ids=_parents(row.get("parent_ids")),
         fitness=_field(row, index, "fitness", float),
         genome_encoding=_field(row, index, "genome_encoding", str),
         genome_hash=_field(row, index, "genome_hash", str),
-        genome_repr=_genome_repr(row.get("genome_repr")),
+        genome_repr=_field(row, index, "genome_repr", _genome_repr),
         genome_repr_mode=_field(row, index, "genome_repr_mode", str),
     )
 

@@ -64,11 +64,9 @@ def _decode_compact(repr_str: str, encoding: str) -> Any:
     raise GenomeError(f"unknown encoding: {encoding}")
 
 
-def decode(repr_str: str | None, mode: str, encoding: str) -> Any:
+def decode(repr_str: str, mode: str, encoding: str) -> Any:
     if encoding not in ENCODINGS:
         raise GenomeError(f"unknown encoding: {encoding}")
-    if mode == "hashed" or not repr_str:
-        return None
     if mode == "full":
         return repr_str if encoding == EXPRESSION_TREE else json.loads(repr_str)
     if mode == "compact":
