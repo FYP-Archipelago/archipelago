@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import json
 import struct
 from typing import Any
 
@@ -40,16 +39,22 @@ def _decode_f64_block(payload: str) -> list[float]:
     return list(struct.unpack(f"<{len(raw) // 8}d", raw))
 
 
-def _decode_compact(repr_str: str, encoding: str) -> Any:
+def _text(value: Any) -> str:
+    if not isinstance(value, str):
+        raise GenomeError(f"expected a string genome_repr, got {type(value).__name__}")
+    return value
+
+
+def _decode_compact(value: Any, encoding: str) -> Any:
     if encoding == REAL_VECTOR:
-        return _decode_f64_block(repr_str)
+        return _decode_f64_block(_text(value))
     if encoding == PERMUTATION:
-        raw = base64.b64decode(repr_str)
+        raw = base64.b64decode(_text(value))
         if len(raw) % 4:
             raise GenomeError(f"uint32 block is not a multiple of 4 bytes: {len(raw)}")
         return list(struct.unpack(f"<{len(raw) // 4}I", raw))
     if encoding == BITSTRING:
-        length_str, payload = repr_str.split(":", 1)
+        length_str, payload = _text(value).split(":", 1)
         n_bits = int(length_str)
         raw = base64.b64decode(payload)
         # LSB-first within each byte. Get this backwards and you still get a
@@ -58,20 +63,20 @@ def _decode_compact(repr_str: str, encoding: str) -> Any:
         bits = "".join(f"{byte:08b}"[::-1] for byte in raw)
         return [int(bit) for bit in bits[:n_bits]]
     if encoding in COMPOSITE_POSITION_KEY:
-        return {k: _decode_f64_block(v) for k, v in json.loads(repr_str).items()}
-    if encoding == EXPRESSION_TREE:
-        return repr_str
+        if not isinstance(value, dict):
+            raise GenomeError(f"expected an object genome_repr, got {type(value).__name__}")
+        return {k: _decode_f64_block(_text(v)) for k, v in value.items()}
     raise GenomeError(f"unknown encoding: {encoding}")
 
 
-def decode(repr_str: str, mode: str, encoding: str) -> Any:
+def decode(value: Any, mode: str, encoding: str) -> Any:
     if encoding not in ENCODINGS:
         raise GenomeError(f"unknown encoding: {encoding}")
-    if mode == "full":
-        return repr_str if encoding == EXPRESSION_TREE else json.loads(repr_str)
-    if mode == "compact":
-        return _decode_compact(repr_str, encoding)
-    raise GenomeError(f"unknown genome_repr_mode: {mode}")
+    if mode not in ("full", "compact"):
+        raise GenomeError(f"unknown genome_repr_mode: {mode}")
+    if encoding == EXPRESSION_TREE:
+        return _text(value)
+    return value if mode == "full" else _decode_compact(value, encoding)
 
 
 def position(genome: Any, encoding: str) -> Any:
