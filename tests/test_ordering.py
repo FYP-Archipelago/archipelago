@@ -19,6 +19,8 @@ def item(island: int, seq: int, t_wall: float) -> Item:
             "fitness": 1.0,
             "genome_encoding": "real_vector",
             "genome_hash": "h",
+            "parent_ids": [],
+            "genome_repr": [0.0],
             "genome_repr_mode": "full",
         },
         0,

@@ -212,7 +212,7 @@ class ClusterStream:
             graph=graph,
             separation=self._separation(),
             clustering=self._info(diagnostics, len(graph.nodes.id)),
-            rows_without_genome=len(self._released) - sum(self._usable),
+            malformed_rows=len(self._malformed),
             warnings=self._warnings(),
         )
 
@@ -514,7 +514,7 @@ class ClusterStream:
     def _released_island(self, processed: int) -> int:
         return self._released[self._row_release[processed]].island_id
 
-    # Resolve a migrant pair once both rows are in the graph; drop it if either has no genome.
+    # Resolve a migrant pair once both rows are in the graph; drop it if either genome is malformed.
     def _resolve(self, index: int) -> None:
         origin, arrived = self._pairs[index]
         if origin in self._unusable_ids or arrived in self._unusable_ids:
@@ -574,7 +574,7 @@ class ClusterStream:
         )
 
     def _warnings(self) -> list[str]:
-        return row_warnings(self._malformed, len(self._released), len(self._released) - sum(self._usable))
+        return row_warnings(self._malformed, len(self._released))
 
     def _update(self, started: float) -> Update:
         if not self._warmed or self._state is None:
@@ -583,7 +583,7 @@ class ClusterStream:
                 status="warming_up",
                 layout=None,
                 clustering=self._info({}, 0),
-                rows_without_genome=len(self._released) - sum(self._usable),
+                malformed_rows=len(self._malformed),
                 warnings=self._warnings(),
                 graph=_empty_delta(self.config.denstream),
             )
@@ -601,7 +601,7 @@ class ClusterStream:
             status="live",
             layout=layout_info(self._projection) if refit else None,
             clustering=self._info(diagnostics, int(cols["id"].size)),
-            rows_without_genome=len(self._released) - sum(self._usable),
+            malformed_rows=len(self._malformed),
             warnings=self._warnings(),
             graph=delta,
         )

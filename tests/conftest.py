@@ -138,7 +138,7 @@ def assert_view_matches(view: View, graph: Graph, skip: tuple[str, ...] = ()) ->
 
 @dataclass
 class SyntheticRun:
-    rows: list[dict[str, str]]
+    rows: list[dict[str, Any]]
     events: list[dict[str, Any]]
     # Per island, its rows and migration_arrive events in seq order.
     records: dict[int, list[tuple[str, dict[str, Any]]]]
@@ -170,17 +170,17 @@ def make_run(per_island: int = 100, islands: int = 3, seed: int = 1) -> Syntheti
             if k % 5 == 0 and k >= 2:
                 parents.append(ids[island][k - 2])
             row = {
-                "island_id": str(island),
-                "eval_index": str(k),
-                "generation": str(k // 10),
-                "seq": "0",
-                "t_wall": repr(1000.0 * island + 0.5 * k + 0.1 * island),
+                "island_id": island,
+                "eval_index": k,
+                "generation": k // 10,
+                "seq": 0,
+                "t_wall": 1000.0 * island + 0.5 * k + 0.1 * island,
                 "individual_id": ids[island][k],
-                "parent_ids": ";".join(parents),
-                "fitness": repr(float((genome**2).sum())),
+                "parent_ids": parents,
+                "fitness": float((genome**2).sum()),
                 "genome_encoding": "real_vector",
                 "genome_hash": hashlib.sha1(text.encode()).hexdigest()[:12],
-                "genome_repr": text,
+                "genome_repr": genome.tolist(),
                 "genome_repr_mode": "full",
             }
             records[island].append(("row", row))
@@ -197,7 +197,7 @@ def make_run(per_island: int = 100, islands: int = 3, seed: int = 1) -> Syntheti
                 }
                 records[island].append(("event", event))
         for seq, (_, record) in enumerate(records[island]):
-            record["seq"] = str(seq) if "eval_index" in record else seq
+            record["seq"] = seq
 
     start = [
         {
@@ -231,5 +231,5 @@ def make_run(per_island: int = 100, islands: int = 3, seed: int = 1) -> Syntheti
     events = [*start, *end, *(r for recs in records.values() for kind, r in recs if kind == "event")]
     rows = [r for recs in records.values() for kind, r in recs if kind == "row"]
     # The file order of a log: by clock-corrected time.
-    rows.sort(key=lambda r: float(r["t_wall"]) - 1000.0 * int(r["island_id"]))
+    rows.sort(key=lambda r: r["t_wall"] - 1000.0 * r["island_id"])
     return SyntheticRun(rows, events, records, start, end)

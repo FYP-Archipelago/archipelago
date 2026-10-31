@@ -27,7 +27,7 @@ class Metric(str, Enum):
 
 
 # Vectorised genomes for every row in input order, plus the sparse sets LSH needs for
-# Jaccard spaces. Rows outside `mask` have no decodable genome and a zero vector.
+# Jaccard spaces. Rows outside `mask` have a malformed genome and a zero vector.
 @dataclass
 class FeatureSet:
     matrix: np.ndarray
@@ -161,11 +161,10 @@ def build_adapter(encoding: str, benchmark_params: dict[str, Any], seed: int) ->
     raise ValueError(f"no feature adapter for encoding: {encoding}")
 
 
-# A row's dense vector (and element ids for set-valued spaces), or None when it has no stored
-# genome. Raises one of DECODE_ERRORS when the genome_repr is malformed.
-def encode(adapter: Adapter, ev: Evaluation) -> tuple[np.ndarray, np.ndarray | None] | None:
-    decoded = genome_mod.decode(ev.genome_repr, ev.genome_repr_mode, ev.genome_encoding)
-    return adapter.encode(decoded) if decoded is not None else None
+# A row's dense vector (and element ids for set-valued spaces).
+# Raises one of DECODE_ERRORS when the genome_repr is malformed.
+def encode(adapter: Adapter, ev: Evaluation) -> tuple[np.ndarray, np.ndarray | None]:
+    return adapter.encode(genome_mod.decode(ev.genome_repr, ev.genome_repr_mode, ev.genome_encoding))
 
 
 # Streaming: the usable rows' vectors in processing order, grown as rows arrive.
@@ -197,8 +196,7 @@ def store_rows(store: FeatureStore, vectors: list[np.ndarray], ids: list[np.ndar
     store.count = size
 
 
-# Vectorise every evaluation. Returns the features and the individual ids of rows whose
-# genome_repr was present but malformed.
+# Vectorise every evaluation. Returns the features and the individual ids of rows whose genome_repr was malformed.
 def build_features(run: Run, seed: int) -> tuple[FeatureSet, list[str]]:
     encoding = run.meta.genome_encoding or ""
     adapter = build_adapter(encoding, run.meta.benchmark_params, seed)

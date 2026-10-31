@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
@@ -23,7 +22,7 @@ class Evaluation(NamedTuple):
     fitness: float
     genome_encoding: str
     genome_hash: str
-    genome_repr: str | None
+    genome_repr: str | list[Any] | dict[str, Any]
     genome_repr_mode: str
 
 
@@ -54,13 +53,9 @@ class Run:
         return ev.t_wall + self.meta.clock_offsets.get(ev.island_id, 0.0)
 
 
-def _blank(value: Any) -> bool:
-    return value is None or value == ""
-
-
 def _field[T](row: Mapping[str, Any], index: int, name: str, convert: Callable[[Any], T]) -> T:
     value = row.get(name)
-    if _blank(value):
+    if value is None:
         raise SchemaError(f"evaluation row {index}: missing required field {name!r}")
     try:
         return convert(value)
@@ -68,38 +63,52 @@ def _field[T](row: Mapping[str, Any], index: int, name: str, convert: Callable[[
         raise SchemaError(f"evaluation row {index}: cannot parse field {name!r} ({value!r})") from exc
 
 
+def _int(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(value)
+    return value
+
+
+# A float field can arrive as a JSON int.
+def _float(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(value)
+    return float(value)
+
+
+def _str(value: Any) -> str:
+    if not isinstance(value, str):
+        raise TypeError(value)
+    return value
+
+
 def _parents(value: Any) -> tuple[str, ...]:
-    if _blank(value):
-        return ()
-    if isinstance(value, str):
-        return tuple(value.split(";"))
-    return tuple(str(v) for v in value)
+    if not isinstance(value, list):
+        raise TypeError(value)
+    return tuple(_str(v) for v in value)
 
 
-# Native JSON rows carry structured genomes (e.g. PSO's {"x", "v"}) as objects; serialise them
-# the way the runner's CSV writer does, so both row shapes give the same string.
-def _genome_repr(value: Any) -> str | None:
-    if _blank(value):
-        return None
-    if isinstance(value, str):
-        return value
-    return json.dumps(value, separators=(",", ":"))
+# A string (compact or expression), a list (full) or an object (composite encodings); never empty.
+def _genome_repr(value: Any) -> str | list[Any] | dict[str, Any]:
+    if not isinstance(value, (str, list, dict)) or not value:
+        raise ValueError(value)
+    return value
 
 
 def parse_row(row: Mapping[str, Any], index: int) -> Evaluation:
     return Evaluation(
-        island_id=_field(row, index, "island_id", int),
-        eval_index=_field(row, index, "eval_index", int),
-        generation=_field(row, index, "generation", int),
-        seq=_field(row, index, "seq", int) if not _blank(row.get("seq")) else _field(row, index, "eval_index", int),
-        t_wall=_field(row, index, "t_wall", float),
-        individual_id=_field(row, index, "individual_id", str),
-        parent_ids=_parents(row.get("parent_ids")),
-        fitness=_field(row, index, "fitness", float),
-        genome_encoding=_field(row, index, "genome_encoding", str),
-        genome_hash=_field(row, index, "genome_hash", str),
-        genome_repr=_genome_repr(row.get("genome_repr")),
-        genome_repr_mode=_field(row, index, "genome_repr_mode", str),
+        island_id=_field(row, index, "island_id", _int),
+        eval_index=_field(row, index, "eval_index", _int),
+        generation=_field(row, index, "generation", _int),
+        seq=_field(row, index, "seq", _int),
+        t_wall=_field(row, index, "t_wall", _float),
+        individual_id=_field(row, index, "individual_id", _str),
+        parent_ids=_field(row, index, "parent_ids", _parents),
+        fitness=_field(row, index, "fitness", _float),
+        genome_encoding=_field(row, index, "genome_encoding", _str),
+        genome_hash=_field(row, index, "genome_hash", _str),
+        genome_repr=_field(row, index, "genome_repr", _genome_repr),
+        genome_repr_mode=_field(row, index, "genome_repr_mode", _str),
     )
 
 
@@ -108,7 +117,7 @@ def parse_evaluations(rows: Sequence[Mapping[str, Any]]) -> list[Evaluation]:
 
 
 def _optional_int(value: Any) -> int | None:
-    return None if _blank(value) else int(value)
+    return None if value is None else int(value)
 
 
 def _require(event: Mapping[str, Any], key: str) -> Any:

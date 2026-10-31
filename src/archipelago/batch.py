@@ -42,16 +42,12 @@ def clean_values(values: Mapping[str, Any]) -> dict[str, Any]:
     return {key: _clean(value) for key, value in values.items()}
 
 
-# Warnings for rows that can't be clustered: malformed genomes, then rows with no genome at all.
-def row_warnings(malformed: list[str], total: int, missing: int) -> list[str]:
-    warnings = []
-    if malformed:
-        named = ", ".join(malformed[:WARNING_ID_LIMIT])
-        more = ", ..." if len(malformed) > WARNING_ID_LIMIT else ""
-        warnings.append(f"{len(malformed)} evaluation(s) have a malformed genome: {named}{more}")
-    if missing:
-        warnings.append(f"{missing} of {total} evaluations have no decodable genome and are left out of the graph.")
-    return warnings
+def row_warnings(malformed: list[str], total: int) -> list[str]:
+    if not malformed:
+        return []
+    named = ", ".join(malformed[:WARNING_ID_LIMIT])
+    more = ", ..." if len(malformed) > WARNING_ID_LIMIT else ""
+    return [f"{len(malformed)} of {total} evaluations have a malformed genome and are left out of the graph: {named}{more}"]
 
 
 # Batch mode: cluster a finished run's logs in one go, with whole-run calibration.
@@ -80,8 +76,7 @@ def _cluster_run(
     features, malformed = build_features(run, config.seed)
     total = len(run.evaluations)
     usable = features.usable
-    rows_without_genome = total - int(usable.size)
-    warnings = row_warnings(malformed, total, rows_without_genome)
+    warnings = row_warnings(malformed, total)
 
     assignment = run_stages(features, config)
     labels = assignment.labels
@@ -158,7 +153,7 @@ def _cluster_run(
             diagnostics=diagnostics,
             elapsed_seconds=time.perf_counter() - started,
         ),
-        rows_without_genome=rows_without_genome,
+        malformed_rows=len(malformed),
         warnings=warnings,
     )
     node_label_of = dict(zip(usable.tolist(), node_labels.tolist()))

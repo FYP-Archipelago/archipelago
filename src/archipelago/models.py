@@ -135,7 +135,7 @@ class Result(BaseModel):
     graph: Graph
     clustering: ClusteringInfo
     separation: Separation
-    rows_without_genome: int
+    malformed_rows: int
     warnings: list[str]
 
 
@@ -216,6 +216,6 @@ class Update(BaseModel):
     # Set when the layout was refitted in this update (positions then carries every node).
     layout: LayoutInfo | None
     clustering: ClusteringInfo
-    rows_without_genome: int
+    malformed_rows: int
     warnings: list[str]
     graph: GraphDelta
