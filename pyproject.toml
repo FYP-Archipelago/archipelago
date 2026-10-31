@@ -1,7 +1,7 @@
 [project]
 name = "archipelago"
 version = "0.3.0"
-description = "Clustering engine for distributed-EA runs, building island-aware search trajectory networks (STNs) live or after the run"
+description = "Clustering engine for Archipelago: explainability platform for island-model distributed Evolutionary Algorithms"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"

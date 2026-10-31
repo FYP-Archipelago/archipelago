@@ -39,6 +39,14 @@ uv add git+https://github.com/FYP-Archipelago/archipelago
    uv run pre-commit install
    ```
 
+## Tests
+
+To run the unit tests:
+
+```bash
+uv run pytest
+```
+
 ## LICENSE
 
 The project is licensed under the [MIT License](LICENSE).
