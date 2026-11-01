@@ -34,7 +34,7 @@ class MicroCluster:
     def radius_if_added(self, point: np.ndarray, weight: float) -> float:
         return radius_if_added(self.weight, self.cf1, self.cf2, point, weight)
 
-    def add(self, point: np.ndarray, weight: float, now: float) -> None:
+    def add(self, point: np.ndarray, weight: float) -> None:
         self.weight += weight
         self.cf1 += point * weight
         self.cf2 += float(point @ point) * weight
@@ -218,7 +218,7 @@ class BatchDenStream:
                 created += 1
                 append(target)
             else:
-                target.add(point, inflated, now)
+                target.add(point, inflated)
                 centres[position_of[target.label]] = target.centre
 
             assignments.append(target.label)
@@ -393,7 +393,7 @@ class StreamDenStream:
         else:
             potential = target.weight * scale >= self.potential_threshold
             self.counters["merges_into_potential" if potential else "merges_into_outlier"] += 1
-            target.add(point, inflated, now)
+            target.add(point, inflated)
             self.centres[self.position_of[target.label]] = target.centre
         if group is not None:
             self.fed[group] = target.label
