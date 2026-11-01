@@ -30,7 +30,7 @@ def item(island: int, seq: int, t_wall: float) -> Item:
 
 def log_for(islands: int, offsets_ns: dict[int, int] | None = None, started: int | None = None, ended: tuple[int, ...] = ()) -> EventLog:
     log = EventLog()
-    apply_event(log, {"type": "run_start", "schema_version": "2.0", "run_id": "r", "algorithm": "a", "benchmark": "b", "num_islands": islands})
+    apply_event(log, {"type": "run_start", "run_id": "r", "algorithm": "a", "benchmark": "b", "num_islands": islands})
     for island in range(islands if started is None else started):
         apply_event(log, {"type": "island_start", "island_id": island, "clock_offset_ns": (offsets_ns or {}).get(island, 0)})
     for island in ended:

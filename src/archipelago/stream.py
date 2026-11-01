@@ -204,7 +204,7 @@ class ClusterStream:
                 run_id=meta.run_id,
                 algorithm=meta.algorithm,
                 benchmark=meta.benchmark,
-                topology=meta.topology,
+                migration_topology=meta.migration_topology,
                 islands=sorted(set(meta.started_islands) | set(self._span)),
                 maximising=self._maximising if self._warmed else meta.maximising,
             ),

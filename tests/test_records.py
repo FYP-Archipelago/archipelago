@@ -9,7 +9,7 @@ from archipelago.batch import row_warnings
 from archipelago.encoding import genome as genome_mod
 from archipelago.encoding.features import DECODE_ERRORS
 from archipelago.errors import SchemaError
-from archipelago.records import parse_row
+from archipelago.records import EventLog, apply_event, parse_row, run_meta
 
 
 def f64_block(values: list[float]) -> str:
@@ -113,3 +113,19 @@ def test_bad_genome_types_raise_decode_errors(value: object, mode: str, encoding
 def test_malformed_rows_get_one_warning() -> None:
     assert row_warnings(["a", "b"], 10) == ["2 of 10 evaluations have a malformed genome and are left out of the graph: a, b"]
     assert row_warnings([], 10) == []
+
+
+@pytest.mark.parametrize(
+    ("migration", "expected"),
+    [
+        ({"topology": "ring", "enabled": True}, "ring"),
+        ({"topology": "ring"}, "ring"),
+        ({"topology": "ring", "enabled": False}, None),
+        (None, None),
+    ],
+)
+def test_migration_topology(migration: dict[str, object] | None, expected: str | None) -> None:
+    log = EventLog()
+    apply_event(log, {"type": "run_start", "run_id": "r", "algorithm": "de", "benchmark": "sphere", "migration": migration})
+
+    assert run_meta(log).migration_topology == expected

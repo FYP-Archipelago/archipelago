@@ -62,7 +62,7 @@ class RunInfo(BaseModel):
     run_id: str
     algorithm: str
     benchmark: str
-    topology: str | None
+    migration_topology: str | None
     islands: list[int]
     maximising: bool
 

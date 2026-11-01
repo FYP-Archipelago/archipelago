@@ -7,8 +7,6 @@ from typing import Any, NamedTuple
 from .encoding import genome as genome_mod
 from .errors import SchemaError, UnsupportedEncoding
 
-SUPPORTED_SCHEMA_MAJOR = "2"
-
 
 class Evaluation(NamedTuple):
     island_id: int
@@ -31,7 +29,8 @@ class RunMeta:
     run_id: str
     algorithm: str
     benchmark: str
-    topology: str | None
+    # None when the run has migration switched off.
+    migration_topology: str | None
     maximising: bool
     genome_encoding: str | None
     budget_per_island: int | None = None
@@ -149,9 +148,6 @@ def migration_pairs(event: Mapping[str, Any]) -> list[tuple[str, str]]:
 def apply_event(log: EventLog, event: Mapping[str, Any]) -> None:
     kind = event.get("type")
     if kind == "run_start" and log.start is None:
-        schema_version = str(_require(event, "schema_version"))
-        if schema_version.split(".", 1)[0] != SUPPORTED_SCHEMA_MAJOR:
-            raise SchemaError(f"log schema {schema_version} is not supported (expected {SUPPORTED_SCHEMA_MAJOR}.x)")
         log.start = event
     elif kind == "island_start":
         island_id = int(_require(event, "island_id"))
@@ -174,12 +170,13 @@ def run_meta(log: EventLog) -> RunMeta:
     if start is None:
         raise SchemaError("no run_start event")
     datasets = start.get("datasets") or {}
+    migration = start.get("migration") or {}
     maximising = log.maximising if log.maximising is not None else datasets.get("maximising", False)
     return RunMeta(
         run_id=str(_require(start, "run_id")),
         algorithm=str(_require(start, "algorithm")),
         benchmark=str(_require(start, "benchmark")),
-        topology=(start.get("migration") or {}).get("topology"),
+        migration_topology=migration.get("topology") if migration.get("enabled", True) else None,
         maximising=bool(maximising),
         budget_per_island=_optional_int(start.get("evaluation_budget_per_island")),
         genome_encoding=log.first_island.get("genome_encoding") if log.first_island else None,

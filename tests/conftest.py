@@ -202,7 +202,6 @@ def make_run(per_island: int = 100, islands: int = 3, seed: int = 1) -> Syntheti
     start = [
         {
             "type": "run_start",
-            "schema_version": "2.0",
             "run_id": "synthetic",
             "algorithm": "ga",
             "benchmark": "sphere",

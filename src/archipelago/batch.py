@@ -128,7 +128,7 @@ def _cluster_run(
             run_id=run.meta.run_id,
             algorithm=run.meta.algorithm,
             benchmark=run.meta.benchmark,
-            topology=run.meta.topology,
+            migration_topology=run.meta.migration_topology,
             islands=run.islands,
             maximising=run.meta.maximising,
         ),
