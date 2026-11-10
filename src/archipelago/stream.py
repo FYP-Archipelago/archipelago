@@ -7,7 +7,8 @@ from typing import Any
 
 import numpy as np
 
-from .batch import clean_values, row_warnings
+from . import explainability
+from .batch import clean_values, migration_routes, row_warnings
 from .config import (
     CALIBRATION_SAMPLE_SIZE,
     CHECKPOINT_FACTOR,
@@ -63,6 +64,7 @@ from .records import (
     Evaluation,
     EventLog,
     apply_event,
+    count_migrants,
     migration_pairs,
     parse_row,
     run_meta,
@@ -130,6 +132,7 @@ class ClusterStream:
         self._t0: float | None = None
         self._last_clock = 0.0
         self._maximising = False
+        self._analyses = explainability.Analyses()
 
         # Every released row, in release order, and where it ended up.
         self._released: list[Evaluation] = []
@@ -199,19 +202,22 @@ class ClusterStream:
         graph = to_graph(columns(self._state, self._span))
         self._finished = True
         self._elapsed += time.perf_counter() - started
+        run_info = RunInfo(
+            run_id=meta.run_id,
+            algorithm=meta.algorithm,
+            benchmark=meta.benchmark,
+            migration_topology=meta.migration_topology,
+            islands=sorted(set(meta.started_islands) | set(self._span)),
+            maximising=self._maximising if self._warmed else meta.maximising,
+        )
         return Result(
-            run=RunInfo(
-                run_id=meta.run_id,
-                algorithm=meta.algorithm,
-                benchmark=meta.benchmark,
-                migration_topology=meta.migration_topology,
-                islands=sorted(set(meta.started_islands) | set(self._span)),
-                maximising=self._maximising if self._warmed else meta.maximising,
-            ),
+            run=run_info,
             layout=layout_info(self._projection),
             graph=graph,
             separation=self._separation(),
             clustering=self._info(diagnostics, len(graph.nodes.id)),
+            migration_routes=migration_routes(meta.route_migrants),
+            explainability=explainability.finish(self._analyses, run_info),
             malformed_rows=len(self._malformed),
             warnings=self._warnings(),
         )
@@ -226,16 +232,22 @@ class ClusterStream:
                 for key in ("seq", "island_id", "t_wall"):
                     if event.get(key) is None:
                         raise SchemaError(f"migration_arrive event: missing required field {key!r}")
+                count_migrants(self._log, event)
                 enqueue(
                     self._order,
                     Item(seq=int(event["seq"]), island=int(event["island_id"]), t_wall=float(event["t_wall"]), event=event),
                 )
             else:
                 apply_event(self._log, event)
+        # Only a row's first delivery reaches the analyses, as enqueue drops redelivered rows.
+        fresh_rows = []
         for row in rows:
             ev = parse_row(row, self._rows_seen)
             self._rows_seen += 1
+            if (ev.island_id, ev.seq) not in self._order.seen_rows:
+                fresh_rows.append(row)
             enqueue(self._order, Item(seq=ev.seq, island=ev.island_id, t_wall=ev.t_wall, row=ev))
+        explainability.add(self._analyses, fresh_rows)
 
     def _take(self, items: list[Item]) -> None:
         for item in items:

@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 
+from . import explainability
 from .config import Config
 from .encoding.features import build_features
 from .errors import SchemaError
@@ -20,7 +21,7 @@ from .graph.state import (
     columns,
     to_graph,
 )
-from .models import ClusteringInfo, Counts, Resolved, Result, RunInfo
+from .models import ClusteringInfo, Counts, MigrationRoute, Resolved, Result, RunInfo
 from .records import parse_run
 from .separation import island_separation
 from .stages import run_stages
@@ -40,6 +41,10 @@ def _clean(value: Any) -> Any:
 
 def clean_values(values: Mapping[str, Any]) -> dict[str, Any]:
     return {key: _clean(value) for key, value in values.items()}
+
+
+def migration_routes(route_migrants: Mapping[tuple[int, int], int]) -> list[MigrationRoute]:
+    return [MigrationRoute(source=source, destination=destination, migrants=count) for (source, destination), count in sorted(route_migrants.items())]
 
 
 def row_warnings(malformed: list[str], total: int) -> list[str]:
@@ -72,6 +77,8 @@ def _cluster_run(
     run = parse_run(evaluations, events)
     if run.meta.genome_encoding is None:
         raise SchemaError("no island_start events and no evaluations: the genome encoding is unknown")
+    analyses = explainability.Analyses()
+    explainability.add(analyses, evaluations)
 
     features, malformed = build_features(run, config.seed)
     total = len(run.evaluations)
@@ -123,15 +130,16 @@ def _cluster_run(
     cols = columns(state, span)
     graph = to_graph(cols)
 
+    run_info = RunInfo(
+        run_id=run.meta.run_id,
+        algorithm=run.meta.algorithm,
+        benchmark=run.meta.benchmark,
+        migration_topology=run.meta.migration_topology,
+        islands=run.islands,
+        maximising=run.meta.maximising,
+    )
     result = Result(
-        run=RunInfo(
-            run_id=run.meta.run_id,
-            algorithm=run.meta.algorithm,
-            benchmark=run.meta.benchmark,
-            migration_topology=run.meta.migration_topology,
-            islands=run.islands,
-            maximising=run.meta.maximising,
-        ),
+        run=run_info,
         layout=layout_info(projection),
         graph=graph,
         separation=island_separation(
@@ -153,6 +161,8 @@ def _cluster_run(
             diagnostics=diagnostics,
             elapsed_seconds=time.perf_counter() - started,
         ),
+        migration_routes=migration_routes(run.meta.route_migrants),
+        explainability=explainability.finish(analyses, run_info),
         malformed_rows=len(malformed),
         warnings=warnings,
     )

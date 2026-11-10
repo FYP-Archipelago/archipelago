@@ -100,7 +100,7 @@ class Config(BaseModel):
 
     # Seeds the LSH projections, MinHash, feature hashing, calibration sampling and MDS
     # landmarks. Keeping it fixed makes the same logs and config give the same result.
-    seed: int = 0
+    seed: int = Field(default=0, ge=0, le=2**32 - 1)
 
     @model_validator(mode="after")
     def _needs_a_stage(self) -> "Config":

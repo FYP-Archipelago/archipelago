@@ -40,6 +40,8 @@ class RunMeta:
     started_islands: tuple[int, ...] = ()
     # (origin individual id, arrived individual id), in event order.
     migrations: tuple[tuple[str, str], ...] = ()
+    # Migrants per (source island, destination island).
+    route_migrants: dict[tuple[int, int], int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -137,12 +139,20 @@ class EventLog:
     ended_islands: set[int] = field(default_factory=set)
     maximising: bool | None = None
     migrations: list[tuple[str, str]] = field(default_factory=list)
+    route_migrants: dict[tuple[int, int], int] = field(default_factory=dict)
 
 
 def migration_pairs(event: Mapping[str, Any]) -> list[tuple[str, str]]:
     origins = event.get("origin_individual_ids") or ()
     arrived = event.get("arrived_individual_ids") or ()
     return [(str(o), str(a)) for o, a in zip(origins, arrived)]
+
+
+def count_migrants(log: EventLog, event: Mapping[str, Any]) -> None:
+    source, destination = event.get("source_island"), event.get("dest_island")
+    migrants = len(event.get("arrived_individual_ids") or ())
+    if isinstance(source, int) and isinstance(destination, int) and migrants:
+        log.route_migrants[(source, destination)] = log.route_migrants.get((source, destination), 0) + migrants
 
 
 def apply_event(log: EventLog, event: Mapping[str, Any]) -> None:
@@ -163,6 +173,7 @@ def apply_event(log: EventLog, event: Mapping[str, Any]) -> None:
         log.maximising = event.get("maximising")
     elif kind == "migration_arrive":
         log.migrations.extend(migration_pairs(event))
+        count_migrants(log, event)
 
 
 def run_meta(log: EventLog) -> RunMeta:
@@ -184,6 +195,7 @@ def run_meta(log: EventLog) -> RunMeta:
         clock_offsets=dict(log.clock_offsets),
         started_islands=tuple(log.started_islands),
         migrations=tuple(log.migrations),
+        route_migrants=dict(log.route_migrants),
     )
 
 
