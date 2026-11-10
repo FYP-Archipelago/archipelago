@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from conftest import SyntheticRun, apply_delta, assert_view_matches, make_run, new_view
 
-from archipelago import ClusterStream, Config, Result, Update, cluster_run
+from archipelago import ClusterStream, Config, Result, ShapleyAttribution, Update, cluster_run
 
 STREAM_CONFIG = {"lsh": True, "birch": True, "denstream": True}
 
@@ -102,6 +102,15 @@ def test_stream_result_is_independent_of_chunking_interleaving_and_redelivery(st
     assert a.clustering.counts.evaluations == 300
     assert scrubbed(a) == scrubbed(b)
     no_non_finite(a.model_dump_json())
+
+
+def test_batch_and_stream_give_the_same_attribution(run: SyntheticRun, streamed: dict[str, tuple[list[Update], Result]]) -> None:
+    batch = cluster_run(run.rows, run.events, STREAM_CONFIG).explainability.shapley
+    assert isinstance(batch, ShapleyAttribution)
+    assert batch.coverage.supported == batch.coverage.evaluations == 300
+    assert batch.routes.players
+    for _, result in streamed.values():
+        assert result.explainability.shapley == batch
 
 
 def test_applying_all_updates_reproduces_the_final_graph(streamed: dict[str, tuple[list[Update], Result]]) -> None:

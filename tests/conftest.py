@@ -152,6 +152,7 @@ DIMENSION = 4
 # Each island random-walks from its own start, every child has the previous individual as parent
 # (every fifth also the one before), every seventh child repeats its parent's genome exactly.
 # Times are laid out so the clock-corrected time is 0.5 * k + 0.1 * island.
+# Migrants also keep their local parents, which only lineage analyses (not clustering) read.
 def make_run(per_island: int = 100, islands: int = 3, seed: int = 1) -> SyntheticRun:
     rng = np.random.default_rng(seed)
     ids = {island: [f"i{island}-{k}" for k in range(per_island)] for island in range(islands)}
@@ -182,11 +183,13 @@ def make_run(per_island: int = 100, islands: int = 3, seed: int = 1) -> Syntheti
                 "genome_hash": hashlib.sha1(text.encode()).hexdigest()[:12],
                 "genome_repr": genome.tolist(),
                 "genome_repr_mode": "full",
+                "operator": "trial" if k else "init",
             }
             records[island].append(("row", row))
             previous = genome
             if k in (50, 80):
                 origin = ids[(island + 1) % islands][k - 20]
+                row.update(operator="migration_arrival", origin_island=(island + 1) % islands, origin_individual_id=origin)
                 event = {
                     "type": "migration_arrive",
                     "island_id": island,
