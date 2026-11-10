@@ -21,7 +21,7 @@ from .graph.state import (
     columns,
     to_graph,
 )
-from .models import ClusteringInfo, Counts, MigrationRoute, Resolved, Result, RunInfo
+from .models import ClusteringInfo, Counts, GenerationSummary, MigrationRoute, Resolved, Result, RunInfo
 from .records import parse_run
 from .separation import island_separation
 from .stages import run_stages
@@ -45,6 +45,13 @@ def clean_values(values: Mapping[str, Any]) -> dict[str, Any]:
 
 def migration_routes(route_migrants: Mapping[tuple[int, int], int]) -> list[MigrationRoute]:
     return [MigrationRoute(source=source, destination=destination, migrants=count) for (source, destination), count in sorted(route_migrants.items())]
+
+
+def generation_history(summaries: Mapping[tuple[int, int], Mapping[str, Any]]) -> list[GenerationSummary]:
+    return [
+        GenerationSummary(**clean_values({key: event[key] for key in GenerationSummary.model_fields if key in event}))
+        for _, event in sorted(summaries.items())
+    ]
 
 
 def row_warnings(malformed: list[str], total: int) -> list[str]:
@@ -162,6 +169,7 @@ def _cluster_run(
             elapsed_seconds=time.perf_counter() - started,
         ),
         migration_routes=migration_routes(run.meta.route_migrants),
+        generation_history=generation_history(run.meta.generation_summaries),
         explainability=explainability.finish(analyses, run_info),
         malformed_rows=len(malformed),
         warnings=warnings,

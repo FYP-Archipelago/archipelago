@@ -42,6 +42,8 @@ class RunMeta:
     migrations: tuple[tuple[str, str], ...] = ()
     # Migrants per (source island, destination island).
     route_migrants: dict[tuple[int, int], int] = field(default_factory=dict)
+    # First generation_end summary per (island id, generation).
+    generation_summaries: dict[tuple[int, int], dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -140,6 +142,7 @@ class EventLog:
     maximising: bool | None = None
     migrations: list[tuple[str, str]] = field(default_factory=list)
     route_migrants: dict[tuple[int, int], int] = field(default_factory=dict)
+    generation_summaries: dict[tuple[int, int], dict[str, Any]] = field(default_factory=dict)
 
 
 def migration_pairs(event: Mapping[str, Any]) -> list[tuple[str, str]]:
@@ -169,8 +172,12 @@ def apply_event(log: EventLog, event: Mapping[str, Any]) -> None:
             log.clock_offsets[island_id] = offset / 1e9
     elif kind == "island_end":
         log.ended_islands.add(int(_require(event, "island_id")))
-    elif kind == "generation_end" and log.maximising is None:
-        log.maximising = event.get("maximising")
+    elif kind == "generation_end":
+        if log.maximising is None:
+            log.maximising = event.get("maximising")
+        island, generation = event.get("island_id"), event.get("generation")
+        if type(island) is int and type(generation) is int and generation >= 0:
+            log.generation_summaries.setdefault((island, generation), dict(event))
     elif kind == "migration_arrive":
         log.migrations.extend(migration_pairs(event))
         count_migrants(log, event)
@@ -196,6 +203,7 @@ def run_meta(log: EventLog) -> RunMeta:
         started_islands=tuple(log.started_islands),
         migrations=tuple(log.migrations),
         route_migrants=dict(log.route_migrants),
+        generation_summaries=dict(log.generation_summaries),
     )
 
 
