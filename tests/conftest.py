@@ -228,7 +228,10 @@ def make_run(per_island: int = 100, islands: int = 3, seed: int = 1) -> Syntheti
         ),
     ]
     end = [
-        *({"type": "generation_end", "island_id": island, "maximising": False} for island in range(islands)),
+        *(
+            {"type": "generation_end", "island_id": island, "generation": (per_island - 1) // 10, "maximising": False, "best_fitness": float(island)}
+            for island in range(islands)
+        ),
         *({"type": "island_end", "island_id": island} for island in range(islands)),
         {"type": "run_end"},
     ]

@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from math import isfinite
 from typing import Any, NamedTuple
+
+from pydantic import ValidationError
 
 from .encoding import genome as genome_mod
 from .errors import SchemaError, UnsupportedEncoding
+from .models import GenerationSummary
 
 
 class Evaluation(NamedTuple):
@@ -42,6 +46,8 @@ class RunMeta:
     migrations: tuple[tuple[str, str], ...] = ()
     # Migrants per (source island, destination island).
     route_migrants: dict[tuple[int, int], int] = field(default_factory=dict)
+    # First generation_end summary per (island id, generation).
+    generation_summaries: dict[tuple[int, int], GenerationSummary] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -140,6 +146,7 @@ class EventLog:
     maximising: bool | None = None
     migrations: list[tuple[str, str]] = field(default_factory=list)
     route_migrants: dict[tuple[int, int], int] = field(default_factory=dict)
+    generation_summaries: dict[tuple[int, int], GenerationSummary] = field(default_factory=dict)
 
 
 def migration_pairs(event: Mapping[str, Any]) -> list[tuple[str, str]]:
@@ -153,6 +160,20 @@ def count_migrants(log: EventLog, event: Mapping[str, Any]) -> None:
     migrants = len(event.get("arrived_individual_ids") or ())
     if isinstance(source, int) and isinstance(destination, int) and migrants:
         log.route_migrants[(source, destination)] = log.route_migrants.get((source, destination), 0) + migrants
+
+
+# Keeps the first summary per island and generation, with only GenerationSummary's fields and non-finite values as None.
+# A summary without a valid island and generation, or one that doesn't fit GenerationSummary, is skipped.
+def record_generation(log: EventLog, event: Mapping[str, Any]) -> None:
+    island, generation = event.get("island_id"), event.get("generation")
+    if type(island) is not int or type(generation) is not int or generation < 0 or (island, generation) in log.generation_summaries:
+        return
+    fields = {key: event[key] for key in GenerationSummary.model_fields if key in event}
+    finite = {key: None if isinstance(value, float) and not isfinite(value) else value for key, value in fields.items()}
+    try:
+        log.generation_summaries[(island, generation)] = GenerationSummary(**finite)
+    except ValidationError:
+        return
 
 
 def apply_event(log: EventLog, event: Mapping[str, Any]) -> None:
@@ -169,8 +190,10 @@ def apply_event(log: EventLog, event: Mapping[str, Any]) -> None:
             log.clock_offsets[island_id] = offset / 1e9
     elif kind == "island_end":
         log.ended_islands.add(int(_require(event, "island_id")))
-    elif kind == "generation_end" and log.maximising is None:
-        log.maximising = event.get("maximising")
+    elif kind == "generation_end":
+        if log.maximising is None:
+            log.maximising = event.get("maximising")
+        record_generation(log, event)
     elif kind == "migration_arrive":
         log.migrations.extend(migration_pairs(event))
         count_migrants(log, event)
@@ -196,6 +219,7 @@ def run_meta(log: EventLog) -> RunMeta:
         started_islands=tuple(log.started_islands),
         migrations=tuple(log.migrations),
         route_migrants=dict(log.route_migrants),
+        generation_summaries=dict(log.generation_summaries),
     )
 
 

@@ -205,6 +205,21 @@ class MigrationRoute(BaseModel):
     migrants: int
 
 
+# Recorded generation_end statistics; no values are inferred from clustered nodes.
+class GenerationSummary(BaseModel):
+    island_id: int
+    generation: int
+    evaluations_total: int | None = None
+    best_fitness: float | None = None
+    best_so_far_fitness: float | None = None
+    mean_fitness: float | None = None
+    std_fitness: float | None = None
+    diversity: float | None = None
+    # Diversity depends on the representation; retain the runner's definition and sample size.
+    diversity_metric: str | None = None
+    diversity_sample_size: int | None = None
+
+
 class Result(BaseModel):
     run: RunInfo
     layout: LayoutInfo
@@ -212,6 +227,8 @@ class Result(BaseModel):
     clustering: ClusteringInfo
     separation: Separation
     migration_routes: list[MigrationRoute]
+    # Sorted by (island_id, generation). Empty for logs without generation summaries.
+    generation_history: list[GenerationSummary]
     explainability: Explainability
     malformed_rows: int
     warnings: list[str]

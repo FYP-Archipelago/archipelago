@@ -121,6 +121,13 @@ def test_batch_and_stream_give_the_same_attribution(run: SyntheticRun, streamed:
         assert result.explainability.shapley == batch
 
 
+def test_batch_and_stream_give_the_same_generation_history(run: SyntheticRun, streamed: dict[str, tuple[list[Update], Result]]) -> None:
+    batch = cluster_run(run.rows, run.events, STREAM_CONFIG).generation_history
+    assert [(s.island_id, s.generation, s.best_fitness) for s in batch] == [(0, 9, 0.0), (1, 9, 1.0), (2, 9, 2.0)]
+    for _, result in streamed.values():
+        assert result.generation_history == batch
+
+
 def test_applying_all_updates_reproduces_the_final_graph(streamed: dict[str, tuple[list[Update], Result]]) -> None:
     for updates, result in streamed.values():
         view = new_view()
