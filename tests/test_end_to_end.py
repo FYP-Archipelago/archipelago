@@ -104,6 +104,14 @@ def test_stream_result_is_independent_of_chunking_interleaving_and_redelivery(st
     no_non_finite(a.model_dump_json())
 
 
+def test_batch_and_stream_count_each_migrant_once(run: SyntheticRun, streamed: dict[str, tuple[list[Update], Result]]) -> None:
+    # Island i receives two migrants from island i + 1; the streamed variant "b" also redelivers events.
+    expected = [(0, 2, 2), (1, 0, 2), (2, 1, 2)]
+    batch = cluster_run(run.rows, run.events, STREAM_CONFIG)
+    for result in (batch, *(result for _, result in streamed.values())):
+        assert [(r.source, r.destination, r.migrants) for r in result.migration_routes] == expected
+
+
 def test_batch_and_stream_give_the_same_attribution(run: SyntheticRun, streamed: dict[str, tuple[list[Update], Result]]) -> None:
     batch = cluster_run(run.rows, run.events, STREAM_CONFIG).explainability.shapley
     assert isinstance(batch, ShapleyAttribution)

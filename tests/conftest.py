@@ -193,6 +193,8 @@ def make_run(per_island: int = 100, islands: int = 3, seed: int = 1) -> Syntheti
                 event = {
                     "type": "migration_arrive",
                     "island_id": island,
+                    "source_island": (island + 1) % islands,
+                    "dest_island": island,
                     "seq": 0,
                     "t_wall": 1000.0 * island + 0.5 * k + 0.1 * island + 0.01,
                     "origin_individual_ids": [origin],

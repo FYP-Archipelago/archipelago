@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from . import explainability
-from .batch import clean_values, row_warnings
+from .batch import clean_values, migration_routes, row_warnings
 from .config import (
     CALIBRATION_SAMPLE_SIZE,
     CHECKPOINT_FACTOR,
@@ -64,6 +64,7 @@ from .records import (
     Evaluation,
     EventLog,
     apply_event,
+    count_migrants,
     migration_pairs,
     parse_row,
     run_meta,
@@ -215,6 +216,7 @@ class ClusterStream:
             graph=graph,
             separation=self._separation(),
             clustering=self._info(diagnostics, len(graph.nodes.id)),
+            migration_routes=migration_routes(meta.route_migrants),
             explainability=explainability.finish(self._analyses, run_info),
             malformed_rows=len(self._malformed),
             warnings=self._warnings(),
@@ -230,6 +232,7 @@ class ClusterStream:
                 for key in ("seq", "island_id", "t_wall"):
                     if event.get(key) is None:
                         raise SchemaError(f"migration_arrive event: missing required field {key!r}")
+                count_migrants(self._log, event)
                 enqueue(
                     self._order,
                     Item(seq=int(event["seq"]), island=int(event["island_id"]), t_wall=float(event["t_wall"]), event=event),

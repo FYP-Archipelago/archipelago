@@ -198,12 +198,20 @@ class Explainability(BaseModel):
     shapley: Annotated[ShapleyAttribution | ExplainabilityAnalysisUnavailable, Field(discriminator="status")]
 
 
+# Migrants that went from one island to another, counted from the migration events.
+class MigrationRoute(BaseModel):
+    source: int
+    destination: int
+    migrants: int
+
+
 class Result(BaseModel):
     run: RunInfo
     layout: LayoutInfo
     graph: Graph
     clustering: ClusteringInfo
     separation: Separation
+    migration_routes: list[MigrationRoute]
     explainability: Explainability
     malformed_rows: int
     warnings: list[str]

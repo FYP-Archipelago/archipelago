@@ -9,7 +9,7 @@ from archipelago.batch import row_warnings
 from archipelago.encoding import genome as genome_mod
 from archipelago.encoding.features import DECODE_ERRORS
 from archipelago.errors import SchemaError
-from archipelago.records import EventLog, apply_event, parse_row, run_meta
+from archipelago.records import EventLog, apply_event, count_migrants, parse_row, run_meta
 
 
 def f64_block(values: list[float]) -> str:
@@ -129,3 +129,15 @@ def test_migration_topology(migration: dict[str, object] | None, expected: str |
     apply_event(log, {"type": "run_start", "run_id": "r", "algorithm": "de", "benchmark": "sphere", "migration": migration})
 
     assert run_meta(log).migration_topology == expected
+
+
+def test_migrants_are_counted_per_route_and_incomplete_events_skipped() -> None:
+    log = EventLog()
+    for event in [
+        {"source_island": 0, "dest_island": 1, "arrived_individual_ids": ["a", "b"]},
+        {"source_island": 0, "dest_island": 1, "arrived_individual_ids": ["c"]},
+        {"source_island": 1, "dest_island": 0, "arrived_individual_ids": []},
+        {"dest_island": 2, "arrived_individual_ids": ["d"]},
+    ]:
+        count_migrants(log, event)
+    assert log.route_migrants == {(0, 1): 3}
