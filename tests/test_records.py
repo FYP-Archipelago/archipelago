@@ -5,7 +5,7 @@ import struct
 
 import pytest
 
-from archipelago.batch import row_warnings
+from archipelago.batch import generation_history, row_warnings
 from archipelago.encoding import genome as genome_mod
 from archipelago.encoding.features import DECODE_ERRORS
 from archipelago.errors import SchemaError
@@ -141,3 +141,17 @@ def test_migrants_are_counted_per_route_and_incomplete_events_skipped() -> None:
     ]:
         count_migrants(log, event)
     assert log.route_migrants == {(0, 1): 3}
+
+
+def test_generation_summaries_keep_the_first_valid_summary_per_island_and_generation() -> None:
+    log = EventLog()
+    for event in [
+        {"type": "generation_end", "island_id": 1, "generation": 0, "best_fitness": 5.0, "mean_fitness": float("nan")},
+        {"type": "generation_end", "island_id": 1, "generation": 0, "best_fitness": 9.0},
+        {"type": "generation_end", "island_id": 0, "generation": 3, "evaluations_total": "thirty"},
+        {"type": "generation_end", "island_id": 0, "generation": 2, "best_fitness": 7.0, "worst_fitness": 99.0},
+        {"type": "generation_end", "island_id": 0},
+    ]:
+        apply_event(log, event)
+    history = generation_history(log.generation_summaries)
+    assert [(s.island_id, s.generation, s.best_fitness, s.mean_fitness) for s in history] == [(0, 2, 7.0, None), (1, 0, 5.0, None)]

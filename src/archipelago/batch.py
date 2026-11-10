@@ -47,11 +47,8 @@ def migration_routes(route_migrants: Mapping[tuple[int, int], int]) -> list[Migr
     return [MigrationRoute(source=source, destination=destination, migrants=count) for (source, destination), count in sorted(route_migrants.items())]
 
 
-def generation_history(summaries: Mapping[tuple[int, int], Mapping[str, Any]]) -> list[GenerationSummary]:
-    return [
-        GenerationSummary(**clean_values({key: event[key] for key in GenerationSummary.model_fields if key in event}))
-        for _, event in sorted(summaries.items())
-    ]
+def generation_history(summaries: Mapping[tuple[int, int], GenerationSummary]) -> list[GenerationSummary]:
+    return [summary for _, summary in sorted(summaries.items())]
 
 
 def row_warnings(malformed: list[str], total: int) -> list[str]:

@@ -228,7 +228,7 @@ class Result(BaseModel):
     separation: Separation
     migration_routes: list[MigrationRoute]
     # Sorted by (island_id, generation). Empty for logs without generation summaries.
-    generation_history: list[GenerationSummary] = Field(default_factory=list)
+    generation_history: list[GenerationSummary]
     explainability: Explainability
     malformed_rows: int
     warnings: list[str]

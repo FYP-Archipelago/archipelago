@@ -47,22 +47,6 @@ To run the unit tests:
 uv run pytest
 ```
 
-## Generation history
-
-Both `cluster_run()` and `ClusterStream.finish()` include `Result.generation_history`,
-alongside `migration_routes`. It contains one recorded `generation_end` summary per
-`(island_id, generation)`, sorted by that key; repeated delivery keeps the first summary.
-Generations and cumulative `evaluations_total` are local to each island.
-
-The summaries retain `best_fitness`, `best_so_far_fitness`, `mean_fitness`,
-`std_fitness`, `diversity`, `diversity_metric`, and `diversity_sample_size` from the
-runner. Fitness orientation is in `Result.run.maximising`. Missing or non-finite
-metrics are `null`; the module does not reconstruct population statistics from
-evaluation rows or clustered nodes. Logs without identified generation summaries
-return an empty list, and older results without the field still validate.
-
-History is part of the final result, not the live `Update` payload.
-
 ## LICENSE
 
 The project is licensed under the [MIT License](LICENSE).
