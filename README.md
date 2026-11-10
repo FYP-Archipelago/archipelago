@@ -6,7 +6,7 @@ This module is its clustering engine. Standard search trajectory networks (STNs)
 
 ## Package Installation
 
-Requires Python 3.12+.
+Requires Python 3.12+
 
 ```bash
 pip install git+https://github.com/FYP-Archipelago/archipelago
