@@ -201,7 +201,7 @@ class ClusterStream:
         graph = to_graph(columns(self._state, self._span))
         self._finished = True
         self._elapsed += time.perf_counter() - started
-        info = RunInfo(
+        run_info = RunInfo(
             run_id=meta.run_id,
             algorithm=meta.algorithm,
             benchmark=meta.benchmark,
@@ -210,12 +210,12 @@ class ClusterStream:
             maximising=self._maximising if self._warmed else meta.maximising,
         )
         return Result(
-            run=info,
+            run=run_info,
             layout=layout_info(self._projection),
             graph=graph,
             separation=self._separation(),
             clustering=self._info(diagnostics, len(graph.nodes.id)),
-            explainability=explainability.finish(self._analyses, info),
+            explainability=explainability.finish(self._analyses, run_info),
             malformed_rows=len(self._malformed),
             warnings=self._warnings(),
         )
@@ -237,14 +237,14 @@ class ClusterStream:
             else:
                 apply_event(self._log, event)
         # Only a row's first delivery reaches the analyses, as enqueue drops redelivered rows.
-        fresh = []
+        fresh_rows = []
         for row in rows:
             ev = parse_row(row, self._rows_seen)
             self._rows_seen += 1
             if (ev.island_id, ev.seq) not in self._order.seen_rows:
-                fresh.append(row)
+                fresh_rows.append(row)
             enqueue(self._order, Item(seq=ev.seq, island=ev.island_id, t_wall=ev.t_wall, row=ev))
-        explainability.add(self._analyses, fresh)
+        explainability.add(self._analyses, fresh_rows)
 
     def _take(self, items: list[Item]) -> None:
         for item in items:

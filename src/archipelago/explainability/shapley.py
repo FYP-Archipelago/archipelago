@@ -1,101 +1,145 @@
-"""Bounded raw-lineage collection and the worker's Shapley result envelope."""
+import random
+from collections.abc import Callable, Sequence
+from math import comb, sqrt
 
-import json
-from math import isfinite
-from typing import Any
+from ..models import LineageCoverage, Player, RunInfo, ShapleyAttribution, ShapleyCoalition, ShapleyGame, ShapleyPlayer, ShapleyStep
+from .lineage import LineageRow, ancestry_masks, build_graph
 
-from .lineage import explain
-
-MAX_ROWS = 100_000
-MAX_PLAYERS = 64
-MAX_SAMPLING_WORK = 50_000_000
-LINEAGE_FIELDS = ("individual_id", "island_id", "fitness", "parent_ids", "operator", "origin_island", "origin_individual_id")
-
-
-def compact_row(raw: dict[str, Any]) -> dict[str, Any]:
-    """Keep ancestry only; never retain genomes or arbitrary runner fields."""
-    row = {key: raw[key] for key in LINEAGE_FIELDS if key in raw}
-    identity = row["individual_id"]
-    if not isinstance(identity, str) or not identity.strip():
-        raise ValueError("Each evaluation needs a nonempty individual ID.")
-    row["individual_id"] = identity.strip()
-    island = row["island_id"]
-    if isinstance(island, bool) or not isinstance(island, (int, str)):
-        raise TypeError("Each evaluation needs a nonnegative island ID.")
-    row["island_id"] = int(island)
-    row["fitness"] = float(row["fitness"])
-    if row["island_id"] < 0 or not isfinite(row["fitness"]):
-        raise ValueError("Each evaluation needs a nonnegative island and finite fitness.")
-    parents = row.get("parent_ids")
-    if isinstance(parents, str):
-        parents = [parent.strip() for parent in parents.split(";") if parent.strip()]
-    elif parents is None:
-        parents = []
-    if not isinstance(parents, list) or any(not isinstance(parent, str) or not parent.strip() for parent in parents):
-        raise ValueError("Parent IDs must be a list of nonempty individual IDs.")
-    row["parent_ids"] = [parent.strip() for parent in parents]
-    origin = row.get("origin_individual_id")
-    if origin is not None and not isinstance(origin, str):
-        raise ValueError("Origin individual ID must be a string.")
-    if row.get("operator") is not None and not isinstance(row["operator"], str):
-        raise TypeError("Operator must be a string.")
-    origin_island = row.get("origin_island")
-    if origin_island not in (None, ""):
-        if isinstance(origin_island, bool) or not isinstance(origin_island, (int, str)):
-            raise TypeError("Origin island ID must be an integer.")
-        row["origin_island"] = int(origin_island)
-    return row
+MAX_ROWS = 300_000  # bounds analysis time
+MAX_SAMPLING_WORK = 50_000_000  # candidate checks per sampled game, a few seconds at most
+EXACT_MAX_PLAYERS = 10  # larger games are sampled; exact cost grows as 2^n * n
+SAMPLES = 1024  # player orders sampled per larger game
+EXAMPLES = 6  # example player orders kept for the UI
 
 
-class ShapleyAccumulator:
-    """Accumulate equally during streaming, recovery and batch processing."""
+# Splits the run's improvement over its best founder between islands, and separately between migration routes.
+# An individual's gain counts towards a group only if every island (or route) in its ancestry is in the group.
+def attribute_improvement(rows: Sequence[LineageRow], run: RunInfo) -> ShapleyAttribution:
+    if not rows or len(rows) > MAX_ROWS:
+        raise ValueError(f"Expected between 1 and {MAX_ROWS:,} evaluation records.")
+    nodes = build_graph(rows)
+    best = max if run.maximising else min
+    founders = [node.fitness for node in nodes.values() if node.founder]
+    if not founders:
+        raise ValueError("No explicit initial-population records; cannot define the baseline.")
+    baseline = best(founders)
 
-    def __init__(self, run_id: str) -> None:
-        self.run_id = run_id
-        self.rows: list[dict[str, Any]] = []
-        self.islands: dict[int, None] = {}
-        self.detail: str | None = None
+    islands = sorted({node.island for node in nodes.values()})
+    routes = sorted({route for node in nodes.values() for route in node.routes})
+    masks, unreached = ancestry_masks(nodes, islands, routes)
+    sign = 1 if run.maximising else -1
+    gains = {node_id: max(0.0, (nodes[node_id].fitness - baseline) * sign) for node_id in masks}
 
-    def unavailable(self, detail: str) -> None:
-        self.detail = detail
-        self.rows.clear()
-        self.islands.clear()
+    warnings = []
+    excluded = len(nodes) - len(masks)
+    if excluded:
+        missing = sum(not node.complete for node_id, node in nodes.items() if node_id not in unreached)
+        reasons = [
+            ("missing or unlogged parent", missing),
+            ("in or below a parent cycle", len(unreached)),
+            ("descended from those", excluded - missing - len(unreached)),
+        ]
+        listed = ", ".join(f"{reason}: {count}" for reason, count in reasons if count)
+        warnings.append(f"{excluded} evaluations lack fully resolved ancestry and are excluded ({listed}).")
 
-    def add(self, rows: list[dict[str, Any]]) -> None:
-        if self.detail is not None:
-            return
-        if len(self.rows) + len(rows) > MAX_ROWS:
-            self.unavailable(f"Shapley analysis supports at most {MAX_ROWS:,} evaluation records.")
-            return
-        try:
-            for raw in rows:
-                row = compact_row(raw)
-                self.islands[row["island_id"]] = None
-                if len(self.islands) > MAX_PLAYERS:
-                    self.unavailable(f"Shapley analysis supports at most {MAX_PLAYERS} islands.")
-                    return
-                self.rows.append(row)
-        except (KeyError, TypeError, ValueError, OverflowError) as error:
-            self.unavailable(f"Unusable evaluation lineage: {error}")
-        except MemoryError:
-            self.unavailable("Insufficient memory for Shapley analysis.")
+    return ShapleyAttribution(
+        baseline_fitness=baseline,
+        observed_best_fitness=best(node.fitness for node in nodes.values()),
+        supported_best_fitness=best(nodes[node_id].fitness for node_id in masks),
+        coverage=LineageCoverage(evaluations=len(nodes), supported=len(masks)),
+        warnings=warnings,
+        islands=shapley_values(islands, [(masks[node_id][0], gain) for node_id, gain in gains.items()]),
+        routes=shapley_values(routes, [(masks[node_id][1], gain) for node_id, gain in gains.items()]),
+    )
 
-    def finish(self, metadata: Any) -> dict[str, Any]:
-        envelope: dict[str, Any] = {"schema_version": 1, "run_id": self.run_id, "status": "unavailable"}
-        if self.detail is not None:
-            return dict(envelope, detail=self.detail)
-        try:
-            explanation = explain(self.rows, maximising=getattr(metadata, "maximising", None), run_id=self.run_id, work_limit=MAX_SAMPLING_WORK)
-            # Finite input fitness can still overflow derived percentages or sampling statistics.
-            json.dumps(explanation, allow_nan=False)
-        except (ValueError, OverflowError) as error:
-            return dict(envelope, detail=f"Shapley analysis unavailable: {error}")
-        except MemoryError:
-            return dict(envelope, detail="Insufficient memory for Shapley analysis.")
-        explanation["source"] = {
-            "kind": "backend-lineage",
-            "algorithm": getattr(metadata, "algorithm", None),
-            "benchmark": getattr(metadata, "benchmark", None),
-            "topology": getattr(metadata, "migration_topology", None),
-        }
-        return dict(envelope, status="ready", explanation=explanation)
+
+# Shapley values of the game where a coalition's value is the best gain among candidates whose required players are all in it.
+# Exact up to EXACT_MAX_PLAYERS; beyond that averaged over sampled player orders, with a standard error.
+def shapley_values(
+    players: Sequence[Player], candidates: Sequence[tuple[int, float]], *, seed: int = 20261103, samples: int = SAMPLES
+) -> ShapleyGame:
+    n = len(players)
+    best: dict[int, float] = {}
+    for mask, gain in candidates:
+        best[mask] = max(best.get(mask, 0.0), gain)
+    exact = n <= EXACT_MAX_PLAYERS
+    if not exact and len(best) * min(samples * n, 1 << n) > MAX_SAMPLING_WORK:
+        raise ValueError("Estimated permutation-sampling work exceeds the Shapley resource limit.")
+
+    value: Callable[[int], float]
+    if exact:
+        # Every coalition up front: its own best gain, or that of any coalition inside it.
+        table = [best.get(mask, 0.0) for mask in range(1 << n)]
+        for i in range(n):
+            for mask in range(1 << n):
+                if mask & (1 << i):
+                    table[mask] = max(table[mask], table[mask ^ (1 << i)])
+        value = table.__getitem__
+    else:
+        cache: dict[int, float] = {}
+
+        def value(mask: int) -> float:
+            if mask not in cache:
+                cache[mask] = max((gain for required, gain in best.items() if required & mask == required), default=0.0)
+            return cache[mask]
+
+    empty, full = value(0), value((1 << n) - 1)
+    rng = random.Random(seed)
+
+    def steps(order: Sequence[int]) -> list[ShapleyStep]:
+        mask, out = 0, []
+        for i in order:
+            before = value(mask)
+            mask |= 1 << i
+            out.append(ShapleyStep(player=players[i], before=before, after=value(mask)))
+        return out
+
+    credit, squared = [0.0] * n, [0.0] * n
+    orders: list[list[ShapleyStep]] = []
+    if exact:
+        for i in range(n):
+            for mask in range(1 << n):
+                if not mask & (1 << i):
+                    credit[i] += (value(mask | (1 << i)) - value(mask)) / (n * comb(n - 1, mask.bit_count()))
+        if n:
+            # Forward and reversed first, then shuffles; 12 tries usually yields enough distinct orders.
+            tried = [tuple(range(n)), tuple(reversed(range(n)))]
+            for _ in range(12):
+                order = list(range(n))
+                rng.shuffle(order)
+                tried.append(tuple(order))
+            orders = [steps(order) for order in list(dict.fromkeys(tried))[:EXAMPLES]]
+    else:
+        for sample in range(samples):
+            order = list(range(n))
+            rng.shuffle(order)
+            mask, before = 0, empty
+            for i in order:
+                mask |= 1 << i
+                after = value(mask)
+                marginal = after - before
+                credit[i] += marginal
+                squared[i] += marginal * marginal
+                before = after
+            if sample < EXAMPLES:
+                orders.append(steps(order))
+        credit = [total / samples for total in credit]
+
+    ranked = sorted(range(n), key=lambda i: (-credit[i], i))
+    return ShapleyGame(
+        empty_value=empty,
+        full_value=full,
+        sampled_orders=None if exact else samples,
+        players=[
+            ShapleyPlayer(
+                player=players[i],
+                value=credit[i],
+                standard_error=None if exact else sqrt(max(0, squared[i] - samples * credit[i] ** 2) / (samples - 1) / samples),
+            )
+            for i in ranked
+        ],
+        coalitions=[ShapleyCoalition(players=[players[i] for i in range(n) if mask & (1 << i)], value=value(mask)) for mask in range(1 << n)]
+        if exact
+        else [],
+        orders=orders,
+    )

@@ -1,6 +1,6 @@
-from typing import Any, Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # The graph models hold tens of thousands of list elements. They are built with
 # model_construct() from lists that are already clean, so pydantic never re-validates them.
@@ -129,10 +129,73 @@ class Separation(BaseModel):
     window_pairs: SeparationWindowPairs
 
 
-# One field per explainability analysis. Each holds that analysis's own result, with a status
-# of "ready" or "unavailable".
+# --- explainability ---
+
+# A Shapley player: an island id, or a (source island, destination island) migration route.
+type Player = int | tuple[int, int]
+
+
+class ShapleyPlayer(BaseModel):
+    player: Player
+    # Shapley value: the player's share of full_value - empty_value, in fitness-improvement units.
+    value: float
+    # None when the game is exact.
+    standard_error: float | None
+
+
+class ShapleyCoalition(BaseModel):
+    players: list[Player]
+    # Best improvement reachable through lineages that stay entirely within these players.
+    value: float
+
+
+# One player joining a coalition in an example order: the coalition's value before and after.
+class ShapleyStep(BaseModel):
+    player: Player
+    before: float
+    after: float
+
+
+class ShapleyGame(BaseModel):
+    # Value of the empty coalition: improvement reachable without any of the players.
+    empty_value: float
+    # Value of the coalition of all players. The players' Shapley values add up to full_value - empty_value.
+    full_value: float
+    # None when the game is exact, otherwise the number of player orders sampled.
+    sampled_orders: int | None
+    players: list[ShapleyPlayer]  # Highest value first
+    # Every coalition when the game is exact; empty when sampled.
+    coalitions: list[ShapleyCoalition]
+    # A few example player orders, each as the steps of adding one player at a time.
+    orders: list[list[ShapleyStep]]
+
+
+class LineageCoverage(BaseModel):
+    evaluations: int
+    # Evaluations whose whole ancestry is logged; only these count towards the games.
+    supported: int
+
+
+# The run's improvement over its best founder, split between islands and, separately, between migration routes.
+# The two games have different empty values, so their Shapley values must not be added together.
+class ShapleyAttribution(BaseModel):
+    status: Literal["ready"] = "ready"
+    baseline_fitness: float
+    observed_best_fitness: float
+    supported_best_fitness: float
+    coverage: LineageCoverage
+    warnings: list[str]
+    islands: ShapleyGame
+    routes: ShapleyGame
+
+
+class ExplainabilityAnalysisUnavailable(BaseModel):
+    status: Literal["unavailable"] = "unavailable"
+    detail: str
+
+
 class Explainability(BaseModel):
-    shapley: dict[str, Any]
+    shapley: Annotated[ShapleyAttribution | ExplainabilityAnalysisUnavailable, Field(discriminator="status")]
 
 
 class Result(BaseModel):

@@ -1,33 +1,33 @@
+import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..models import Explainability, RunInfo
-from .shapley import ShapleyAccumulator
+from pydantic import BaseModel
+
+from ..models import Explainability, ExplainabilityAnalysisUnavailable, RunInfo
+from .lineage import LineageRow, lineage_row
+from .shapley import attribute_improvement
 
 
-# What every explainability analysis has collected so far, one field per analysis.
 @dataclass
 class Analyses:
-    # The run id comes from run_start, so it is filled in at finish.
-    shapley: ShapleyAccumulator = field(default_factory=lambda: ShapleyAccumulator(""))
-
-
-# A failing analysis must not fail clustering or the other analyses, so its error becomes an unavailable result.
-def _guarded(run_id: str, compute: Callable[[], dict[str, Any]]) -> dict[str, Any]:
-    try:
-        return compute()
-    except Exception as error:  # noqa: BLE001
-        return {"schema_version": 1, "run_id": run_id, "status": "unavailable", "detail": f"Analysis failed: {error}"}
+    shapley: list[LineageRow] = field(default_factory=list)
 
 
 def add(analyses: Analyses, rows: Sequence[Mapping[str, Any]]) -> None:
-    try:
-        analyses.shapley.add(rows)
-    except Exception as error:  # noqa: BLE001
-        analyses.shapley.unavailable(f"Analysis failed: {error}")
+    analyses.shapley.extend(lineage_row(row) for row in rows)
 
 
 def finish(analyses: Analyses, run: RunInfo) -> Explainability:
-    analyses.shapley.run_id = run.run_id
-    return Explainability(shapley=_guarded(run.run_id, lambda: analyses.shapley.finish(run)))
+    return Explainability(shapley=_result("Shapley analysis", lambda: attribute_improvement(analyses.shapley, run)))
+
+
+# A failing analysis must not fail clustering or the other analyses, so we make it unavailable instead.
+def _result[T: BaseModel](name: str, compute: Callable[[], T]) -> T | ExplainabilityAnalysisUnavailable:
+    try:
+        output = compute()
+        json.dumps(output.model_dump(), allow_nan=False)
+    except Exception as error:  # noqa: BLE001
+        return ExplainabilityAnalysisUnavailable(detail=f"{name} unavailable: {error}")
+    return output

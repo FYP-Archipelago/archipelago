@@ -126,7 +126,7 @@ def _cluster_run(
     cols = columns(state, span)
     graph = to_graph(cols)
 
-    info = RunInfo(
+    run_info = RunInfo(
         run_id=run.meta.run_id,
         algorithm=run.meta.algorithm,
         benchmark=run.meta.benchmark,
@@ -135,7 +135,7 @@ def _cluster_run(
         maximising=run.meta.maximising,
     )
     result = Result(
-        run=info,
+        run=run_info,
         layout=layout_info(projection),
         graph=graph,
         separation=island_separation(
@@ -157,7 +157,7 @@ def _cluster_run(
             diagnostics=diagnostics,
             elapsed_seconds=time.perf_counter() - started,
         ),
-        explainability=explainability.finish(analyses, info),
+        explainability=explainability.finish(analyses, run_info),
         malformed_rows=len(malformed),
         warnings=warnings,
     )
