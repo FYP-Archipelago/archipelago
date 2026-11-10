@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 
+from . import explainability
 from .config import Config
 from .encoding.features import build_features
 from .errors import SchemaError
@@ -72,6 +73,8 @@ def _cluster_run(
     run = parse_run(evaluations, events)
     if run.meta.genome_encoding is None:
         raise SchemaError("no island_start events and no evaluations: the genome encoding is unknown")
+    analyses = explainability.Analyses()
+    explainability.add(analyses, evaluations)
 
     features, malformed = build_features(run, config.seed)
     total = len(run.evaluations)
@@ -123,15 +126,16 @@ def _cluster_run(
     cols = columns(state, span)
     graph = to_graph(cols)
 
+    info = RunInfo(
+        run_id=run.meta.run_id,
+        algorithm=run.meta.algorithm,
+        benchmark=run.meta.benchmark,
+        migration_topology=run.meta.migration_topology,
+        islands=run.islands,
+        maximising=run.meta.maximising,
+    )
     result = Result(
-        run=RunInfo(
-            run_id=run.meta.run_id,
-            algorithm=run.meta.algorithm,
-            benchmark=run.meta.benchmark,
-            migration_topology=run.meta.migration_topology,
-            islands=run.islands,
-            maximising=run.meta.maximising,
-        ),
+        run=info,
         layout=layout_info(projection),
         graph=graph,
         separation=island_separation(
@@ -153,6 +157,7 @@ def _cluster_run(
             diagnostics=diagnostics,
             elapsed_seconds=time.perf_counter() - started,
         ),
+        explainability=explainability.finish(analyses, info),
         malformed_rows=len(malformed),
         warnings=warnings,
     )

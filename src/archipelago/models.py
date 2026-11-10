@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -129,12 +129,19 @@ class Separation(BaseModel):
     window_pairs: SeparationWindowPairs
 
 
+# One field per explainability analysis. Each holds that analysis's own result, with a status
+# of "ready" or "unavailable".
+class Explainability(BaseModel):
+    shapley: dict[str, Any]
+
+
 class Result(BaseModel):
     run: RunInfo
     layout: LayoutInfo
     graph: Graph
     clustering: ClusteringInfo
     separation: Separation
+    explainability: Explainability
     malformed_rows: int
     warnings: list[str]
 

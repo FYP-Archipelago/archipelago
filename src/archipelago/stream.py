@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 
+from . import explainability
 from .batch import clean_values, row_warnings
 from .config import (
     CALIBRATION_SAMPLE_SIZE,
@@ -130,6 +131,7 @@ class ClusterStream:
         self._t0: float | None = None
         self._last_clock = 0.0
         self._maximising = False
+        self._analyses = explainability.Analyses()
 
         # Every released row, in release order, and where it ended up.
         self._released: list[Evaluation] = []
@@ -199,19 +201,21 @@ class ClusterStream:
         graph = to_graph(columns(self._state, self._span))
         self._finished = True
         self._elapsed += time.perf_counter() - started
+        info = RunInfo(
+            run_id=meta.run_id,
+            algorithm=meta.algorithm,
+            benchmark=meta.benchmark,
+            migration_topology=meta.migration_topology,
+            islands=sorted(set(meta.started_islands) | set(self._span)),
+            maximising=self._maximising if self._warmed else meta.maximising,
+        )
         return Result(
-            run=RunInfo(
-                run_id=meta.run_id,
-                algorithm=meta.algorithm,
-                benchmark=meta.benchmark,
-                migration_topology=meta.migration_topology,
-                islands=sorted(set(meta.started_islands) | set(self._span)),
-                maximising=self._maximising if self._warmed else meta.maximising,
-            ),
+            run=info,
             layout=layout_info(self._projection),
             graph=graph,
             separation=self._separation(),
             clustering=self._info(diagnostics, len(graph.nodes.id)),
+            explainability=explainability.finish(self._analyses, info),
             malformed_rows=len(self._malformed),
             warnings=self._warnings(),
         )
@@ -232,10 +236,15 @@ class ClusterStream:
                 )
             else:
                 apply_event(self._log, event)
+        # Only a row's first delivery reaches the analyses, as enqueue drops redelivered rows.
+        fresh = []
         for row in rows:
             ev = parse_row(row, self._rows_seen)
             self._rows_seen += 1
+            if (ev.island_id, ev.seq) not in self._order.seen_rows:
+                fresh.append(row)
             enqueue(self._order, Item(seq=ev.seq, island=ev.island_id, t_wall=ev.t_wall, row=ev))
+        explainability.add(self._analyses, fresh)
 
     def _take(self, items: list[Item]) -> None:
         for item in items:
