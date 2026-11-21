@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from . import explainability
-from .batch import clean_values, generation_history, migration_routes, row_warnings
+from .batch import clean_values, generation_history, island_ends, migration_routes, row_warnings
 from .config import (
     CALIBRATION_SAMPLE_SIZE,
     CHECKPOINT_FACTOR,
@@ -209,6 +209,8 @@ class ClusterStream:
             migration_topology=meta.migration_topology,
             islands=sorted(set(meta.started_islands) | set(self._span)),
             maximising=self._maximising if self._warmed else meta.maximising,
+            budget_per_island=meta.budget_per_island,
+            stagnation_generations=meta.stagnation_generations,
         )
         return Result(
             run=run_info,
@@ -218,6 +220,7 @@ class ClusterStream:
             clustering=self._info(diagnostics, len(graph.nodes.id)),
             migration_routes=migration_routes(meta.route_migrants),
             generation_history=generation_history(meta.generation_summaries),
+            island_ends=island_ends(meta.island_ends),
             explainability=explainability.finish(self._analyses, run_info),
             malformed_rows=len(self._malformed),
             warnings=self._warnings(),
