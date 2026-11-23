@@ -128,6 +128,17 @@ def test_batch_and_stream_give_the_same_generation_history(run: SyntheticRun, st
         assert result.generation_history == batch
 
 
+def test_batch_and_stream_give_the_same_island_ends(run: SyntheticRun, streamed: dict[str, tuple[list[Update], Result]]) -> None:
+    batch = cluster_run(run.rows, run.events, STREAM_CONFIG).island_ends
+    assert [(end.island_id, end.termination_reason, end.generations_since_improvement) for end in batch] == [
+        (0, "stagnation", 0),
+        (1, "stagnation", 1),
+        (2, "stagnation", 2),
+    ]
+    for _, result in streamed.values():
+        assert result.island_ends == batch
+
+
 def test_applying_all_updates_reproduces_the_final_graph(streamed: dict[str, tuple[list[Update], Result]]) -> None:
     for updates, result in streamed.values():
         view = new_view()

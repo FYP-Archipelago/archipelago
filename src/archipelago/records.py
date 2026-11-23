@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from .encoding import genome as genome_mod
 from .errors import SchemaError, UnsupportedEncoding
-from .models import GenerationSummary
+from .models import GenerationSummary, IslandEnd
 
 
 class Evaluation(NamedTuple):
@@ -48,6 +48,8 @@ class RunMeta:
     route_migrants: dict[tuple[int, int], int] = field(default_factory=dict)
     # First generation_end summary per (island id, generation).
     generation_summaries: dict[tuple[int, int], GenerationSummary] = field(default_factory=dict)
+    island_ends: dict[int, IslandEnd] = field(default_factory=dict)
+    stagnation_generations: int | None = None
 
 
 @dataclass(frozen=True)
@@ -147,6 +149,7 @@ class EventLog:
     migrations: list[tuple[str, str]] = field(default_factory=list)
     route_migrants: dict[tuple[int, int], int] = field(default_factory=dict)
     generation_summaries: dict[tuple[int, int], GenerationSummary] = field(default_factory=dict)
+    island_ends: dict[int, IslandEnd] = field(default_factory=dict)
 
 
 def migration_pairs(event: Mapping[str, Any]) -> list[tuple[str, str]]:
@@ -176,6 +179,17 @@ def record_generation(log: EventLog, event: Mapping[str, Any]) -> None:
         return
 
 
+# Keeps the first island_end per island, with only IslandEnd's fields.
+def record_island_end(log: EventLog, event: Mapping[str, Any]) -> None:
+    island = event.get("island_id")
+    if type(island) is not int or island in log.island_ends:
+        return
+    try:
+        log.island_ends[island] = IslandEnd(**{key: event[key] for key in IslandEnd.model_fields if key in event})
+    except ValidationError:
+        return
+
+
 def apply_event(log: EventLog, event: Mapping[str, Any]) -> None:
     kind = event.get("type")
     if kind == "run_start" and log.start is None:
@@ -190,6 +204,7 @@ def apply_event(log: EventLog, event: Mapping[str, Any]) -> None:
             log.clock_offsets[island_id] = offset / 1e9
     elif kind == "island_end":
         log.ended_islands.add(int(_require(event, "island_id")))
+        record_island_end(log, event)
     elif kind == "generation_end":
         if log.maximising is None:
             log.maximising = event.get("maximising")
@@ -220,6 +235,8 @@ def run_meta(log: EventLog) -> RunMeta:
         migrations=tuple(log.migrations),
         route_migrants=dict(log.route_migrants),
         generation_summaries=dict(log.generation_summaries),
+        island_ends=dict(log.island_ends),
+        stagnation_generations=_optional_int(((start.get("config") or {}).get("termination") or {}).get("stagnation_generations")),
     )
 
 

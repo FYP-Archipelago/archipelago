@@ -5,7 +5,7 @@ import struct
 
 import pytest
 
-from archipelago.batch import generation_history, row_warnings
+from archipelago.batch import generation_history, island_ends, row_warnings
 from archipelago.encoding import genome as genome_mod
 from archipelago.encoding.features import DECODE_ERRORS
 from archipelago.errors import SchemaError
@@ -131,6 +131,14 @@ def test_migration_topology(migration: dict[str, object] | None, expected: str |
     assert run_meta(log).migration_topology == expected
 
 
+def test_run_meta_reads_the_budget_per_island_and_the_stagnation_rule_from_run_start() -> None:
+    log = EventLog()
+    start = {"type": "run_start", "run_id": "r", "algorithm": "de", "benchmark": "sphere", "evaluation_budget_per_island": 500}
+    apply_event(log, {**start, "config": {"termination": {"stagnation_generations": 30}}})
+
+    assert (run_meta(log).budget_per_island, run_meta(log).stagnation_generations) == (500, 30)
+
+
 def test_migrants_are_counted_per_route_and_incomplete_events_skipped() -> None:
     log = EventLog()
     for event in [
@@ -155,3 +163,15 @@ def test_generation_summaries_keep_the_first_valid_summary_per_island_and_genera
         apply_event(log, event)
     history = generation_history(log.generation_summaries)
     assert [(s.island_id, s.generation, s.best_fitness, s.mean_fitness) for s in history] == [(0, 2, 7.0, None), (1, 0, 5.0, None)]
+
+
+def test_island_ends_keep_the_first_valid_end_per_island() -> None:
+    log = EventLog()
+    for event in [
+        {"type": "island_end", "island_id": 1, "termination_reason": "stagnation", "generations_completed": 40, "evaluations_total": 400},
+        {"type": "island_end", "island_id": 1, "termination_reason": "max_evaluations", "generations_completed": 50, "evaluations_total": 500},
+        {"type": "island_end", "island_id": 0, "termination_reason": "error", "generations_completed": "many", "evaluations_total": 9},
+    ]:
+        apply_event(log, event)
+    assert log.ended_islands == {0, 1}
+    assert [(e.island_id, e.termination_reason, e.generations_since_improvement) for e in island_ends(log.island_ends)] == [(1, "stagnation", None)]

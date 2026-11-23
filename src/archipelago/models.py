@@ -65,6 +65,8 @@ class RunInfo(BaseModel):
     migration_topology: str | None
     islands: list[int]
     maximising: bool
+    budget_per_island: int | None = None
+    stagnation_generations: int | None = None
 
 
 class LayoutInfo(BaseModel):
@@ -220,6 +222,16 @@ class GenerationSummary(BaseModel):
     diversity_sample_size: int | None = None
 
 
+# Why and when an island stopped, as its island_end event said. termination_reason is the runner's TerminationReason:
+# stagnation, max_evaluations, target_fitness_reached, max_generations, time_limit, error or aborted.
+class IslandEnd(BaseModel):
+    island_id: int
+    termination_reason: str
+    generations_completed: int
+    evaluations_total: int
+    generations_since_improvement: int | None = None
+
+
 class Result(BaseModel):
     run: RunInfo
     layout: LayoutInfo
@@ -229,6 +241,8 @@ class Result(BaseModel):
     migration_routes: list[MigrationRoute]
     # Sorted by (island_id, generation). Empty for logs without generation summaries.
     generation_history: list[GenerationSummary]
+    # One per island that logged island_end, sorted by island_id; an island that crashed has none.
+    island_ends: list[IslandEnd] = []
     explainability: Explainability
     malformed_rows: int
     warnings: list[str]

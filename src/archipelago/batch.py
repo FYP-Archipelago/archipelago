@@ -21,7 +21,7 @@ from .graph.state import (
     columns,
     to_graph,
 )
-from .models import ClusteringInfo, Counts, GenerationSummary, MigrationRoute, Resolved, Result, RunInfo
+from .models import ClusteringInfo, Counts, GenerationSummary, IslandEnd, MigrationRoute, Resolved, Result, RunInfo
 from .records import parse_run
 from .separation import island_separation
 from .stages import run_stages
@@ -49,6 +49,10 @@ def migration_routes(route_migrants: Mapping[tuple[int, int], int]) -> list[Migr
 
 def generation_history(summaries: Mapping[tuple[int, int], GenerationSummary]) -> list[GenerationSummary]:
     return [summary for _, summary in sorted(summaries.items())]
+
+
+def island_ends(ends: Mapping[int, IslandEnd]) -> list[IslandEnd]:
+    return [end for _, end in sorted(ends.items())]
 
 
 def row_warnings(malformed: list[str], total: int) -> list[str]:
@@ -141,6 +145,8 @@ def _cluster_run(
         migration_topology=run.meta.migration_topology,
         islands=run.islands,
         maximising=run.meta.maximising,
+        budget_per_island=run.meta.budget_per_island,
+        stagnation_generations=run.meta.stagnation_generations,
     )
     result = Result(
         run=run_info,
@@ -167,6 +173,7 @@ def _cluster_run(
         ),
         migration_routes=migration_routes(run.meta.route_migrants),
         generation_history=generation_history(run.meta.generation_summaries),
+        island_ends=island_ends(run.meta.island_ends),
         explainability=explainability.finish(analyses, run_info),
         malformed_rows=len(malformed),
         warnings=warnings,
