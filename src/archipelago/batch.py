@@ -28,6 +28,7 @@ from .models import (
     GenerationSummary,
     IslandBest,
     IslandEnd,
+    MigrationArrival,
     MigrationRoute,
     Resolved,
     Result,
@@ -56,6 +57,10 @@ def clean_values(values: Mapping[str, Any]) -> dict[str, Any]:
 
 def migration_routes(route_migrants: Mapping[tuple[int, int], int]) -> list[MigrationRoute]:
     return [MigrationRoute(source=source, destination=destination, migrants=count) for (source, destination), count in sorted(route_migrants.items())]
+
+
+def migration_arrivals(arrivals: Sequence[tuple[int, int, int, int, int]]) -> list[MigrationArrival]:
+    return [MigrationArrival(generation=g, source=s, destination=d, migrants=m, source_generation=sent) for g, s, d, m, sent in sorted(arrivals)]
 
 
 def generation_history(summaries: Mapping[tuple[int, int], GenerationSummary]) -> list[GenerationSummary]:
@@ -206,6 +211,7 @@ def _cluster_run(
             elapsed_seconds=time.perf_counter() - started,
         ),
         migration_routes=migration_routes(run.meta.route_migrants),
+        migration_arrivals=migration_arrivals(run.meta.arrivals),
         generation_history=generation_history(run.meta.generation_summaries),
         island_ends=island_ends(run.meta.island_ends),
         island_bests=bests,

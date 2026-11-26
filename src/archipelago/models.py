@@ -207,6 +207,14 @@ class MigrationRoute(BaseModel):
     migrants: int
 
 
+class MigrationArrival(BaseModel):
+    generation: int
+    source: int
+    destination: int
+    migrants: int
+    source_generation: int
+
+
 # Recorded generation_end statistics; no values are inferred from clustered nodes.
 class GenerationSummary(BaseModel):
     island_id: int
@@ -276,6 +284,8 @@ class Result(BaseModel):
     clustering: ClusteringInfo
     separation: Separation
     migration_routes: list[MigrationRoute]
+    # Sorted by (generation, source, destination).
+    migration_arrivals: list[MigrationArrival]
     # Sorted by (island_id, generation). Empty for logs without generation summaries.
     generation_history: list[GenerationSummary]
     # One per island that logged island_end, sorted by island_id; an island that crashed has none.
