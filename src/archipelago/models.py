@@ -364,7 +364,8 @@ class GraphDelta(BaseModel):
 
 class Update(BaseModel):
     status: Literal["warming_up", "live"]
-    # Set when the layout was refitted in this update (positions then carries every node).
+    maximising: bool | None  # None while warming up
+    migration_routes: list[MigrationRoute]
     layout: LayoutInfo | None
     clustering: ClusteringInfo
     malformed_rows: int

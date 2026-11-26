@@ -172,3 +172,13 @@ def test_batch_and_stream_pick_the_same_bests_and_convergence(run: SyntheticRun,
         assert picks(result) == picks(batch)
         assert result.run_best_island == batch.run_best_island
         assert result.convergence == batch.convergence
+
+
+def test_live_updates_carry_the_direction_and_route_totals(streamed: dict[str, tuple[list[Update], Result]]) -> None:
+    for updates, result in streamed.values():
+        assert all(u.maximising is None for u in updates if u.status == "warming_up")
+        assert all(u.maximising is False for u in updates if u.status == "live")
+        # Totals only grow, and the last update has every migrant the result counts.
+        totals = [sum(r.migrants for r in u.migration_routes) for u in updates]
+        assert totals == sorted(totals)
+        assert updates[-1].migration_routes == result.migration_routes

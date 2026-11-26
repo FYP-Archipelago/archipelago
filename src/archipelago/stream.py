@@ -606,6 +606,8 @@ class ClusterStream:
             self._elapsed += time.perf_counter() - started
             return Update.model_construct(
                 status="warming_up",
+                maximising=None,
+                migration_routes=migration_routes(self._log.route_migrants),
                 layout=None,
                 clustering=self._info({}, 0),
                 malformed_rows=len(self._malformed),
@@ -624,6 +626,8 @@ class ClusterStream:
         self._elapsed += time.perf_counter() - started
         return Update.model_construct(
             status="live",
+            maximising=self._maximising,
+            migration_routes=migration_routes(self._log.route_migrants),
             layout=layout_info(self._projection) if refit else None,
             clustering=self._info(diagnostics, int(cols["id"].size)),
             malformed_rows=len(self._malformed),
