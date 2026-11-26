@@ -243,6 +243,32 @@ class IslandBest(BaseModel):
     node: int
 
 
+# Where the run first had made a share of its improvement along one axis, and which island got there.
+# x is a generation or that generation's evaluations_total, and fitness the island's best-so-far there.
+class ConvergencePoint(BaseModel):
+    island_id: int
+    x: int
+    fitness: float
+    # Share of all islands' search along this axis that came after x.
+    after: float
+
+
+class ConvergenceLevel(BaseModel):
+    share: float
+    generation: ConvergencePoint
+    evaluations: ConvergencePoint | None
+
+
+# How the run's best moved from its best starting value to its final best
+# Measured in orders of magnitude (log) when minimising with every value above 0, otherwise in fitness.
+class Convergence(BaseModel):
+    scale: Literal["log", "linear"]
+    start_fitness: float
+    final_fitness: float
+    # One per share in CONVERGENCE_SHARES, in that order; empty when the best never moved.
+    levels: list[ConvergenceLevel]
+
+
 class Result(BaseModel):
     run: RunInfo
     layout: LayoutInfo
@@ -256,6 +282,8 @@ class Result(BaseModel):
     island_ends: list[IslandEnd] = []
     island_bests: list[IslandBest]
     run_best_island: int | None
+    # None for logs without generation summaries
+    convergence: Convergence | None
     explainability: Explainability
     malformed_rows: int
     warnings: list[str]

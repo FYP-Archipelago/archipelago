@@ -9,6 +9,7 @@ import numpy as np
 
 from . import explainability
 from .config import Config
+from .convergence import convergence
 from .encoding.features import build_features
 from .errors import SchemaError
 from .graph.grouping import majority_labels
@@ -209,6 +210,7 @@ def _cluster_run(
         island_ends=island_ends(run.meta.island_ends),
         island_bests=bests,
         run_best_island=run_best_island,
+        convergence=convergence(list(run.meta.generation_summaries.values()), run.meta.maximising, list(run.meta.island_ends.values())),
         explainability=explainability.finish(analyses, run_info),
         malformed_rows=len(malformed),
         warnings=warnings,

@@ -158,3 +158,17 @@ def test_applying_all_updates_reproduces_the_final_graph(streamed: dict[str, tup
         # cannot know about. Everything else is exact (percentile and weight within tolerance).
         assert_view_matches(view, result.graph, skip=("x", "y", "z"))
         assert all(-1.0 <= view.nodes[n][axis] <= 1.0 for n in view.nodes for axis in "xyz")
+
+
+def test_batch_and_stream_pick_the_same_bests_and_convergence(run: SyntheticRun, streamed: dict[str, tuple[list[Update], Result]]) -> None:
+    batch = cluster_run(run.rows, run.events, STREAM_CONFIG)
+    assert batch.run_best_island is not None
+
+    # Node ids depend on how each mode clustered, so only the evaluations are compared.
+    def picks(result: Result) -> list[tuple]:
+        return [(b.island_id, b.fitness, b.individual_id, b.generation, b.evaluations) for b in result.island_bests]
+
+    for _, result in streamed.values():
+        assert picks(result) == picks(batch)
+        assert result.run_best_island == batch.run_best_island
+        assert result.convergence == batch.convergence

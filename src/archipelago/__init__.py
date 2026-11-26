@@ -3,6 +3,9 @@ from .config import Config
 from .errors import ClusteringError, SchemaError, UnsupportedEncoding
 from .models import (
     ClusteringInfo,
+    Convergence,
+    ConvergenceLevel,
+    ConvergencePoint,
     Counts,
     EdgeChanges,
     Edges,
@@ -46,6 +49,9 @@ __all__ = [
     "ClusteringError",
     "ClusteringInfo",
     "Config",
+    "Convergence",
+    "ConvergenceLevel",
+    "ConvergencePoint",
     "Counts",
     "EdgeChanges",
     "Edges",

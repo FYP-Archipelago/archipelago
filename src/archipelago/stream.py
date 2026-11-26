@@ -18,6 +18,7 @@ from .config import (
     WARMUP_ROWS,
     Config,
 )
+from .convergence import convergence
 from .encoding import genome as genome_mod
 from .encoding.features import (
     DECODE_ERRORS,
@@ -225,6 +226,7 @@ class ClusterStream:
             island_ends=island_ends(meta.island_ends),
             island_bests=bests,
             run_best_island=run_best_island,
+            convergence=convergence(list(meta.generation_summaries.values()), run_info.maximising, list(meta.island_ends.values())),
             explainability=explainability.finish(self._analyses, run_info),
             malformed_rows=len(self._malformed),
             warnings=self._warnings(),
