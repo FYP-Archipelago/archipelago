@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -54,6 +55,7 @@ class GraphState:
     row_node: np.ndarray = field(default_factory=lambda: _empty(np.int64))
     row_fitness: np.ndarray = field(default_factory=lambda: _empty(np.float64))
     row_coords: np.ndarray = field(default_factory=lambda: _empty(np.float64, 3))
+    row_eval: np.ndarray = field(default_factory=lambda: _empty(np.int64))
     edges: int = 0
     edge_of: dict[tuple[int, int], int] = field(default_factory=dict)
     edge_pair: np.ndarray = field(default_factory=lambda: _empty(np.int64, 2))
@@ -126,10 +128,32 @@ def add_rows(
     state.row_node = grow(state.row_node, size)
     state.row_fitness = grow(state.row_fitness, size)
     state.row_coords = grow(state.row_coords, size)
+    state.row_eval = grow(state.row_eval, size)
     state.row_node[start:size] = node
     state.row_fitness[start:size] = fitness
     state.row_coords[start:size] = coords
+    state.row_eval[start:size] = eval_index
     state.rows = size
+
+
+# Each island's best row, by island: the first row (by eval_index, then row order) to reach the island's best fitness
+def island_best_rows(state: GraphState) -> dict[int, int]:
+    fitness = state.row_fitness[: state.rows]
+    rows = np.flatnonzero(np.isfinite(fitness))
+    if not rows.size:
+        return {}
+    oriented = -fitness[rows] if state.maximising else fitness[rows]
+    island = state.island[state.row_node[rows]]
+    order = np.lexsort((rows, state.row_eval[rows], oriented, island))
+    heads = order[np.r_[True, island[order][1:] != island[order][:-1]]]
+    return {int(i): int(r) for i, r in zip(island[heads].tolist(), rows[heads].tolist())}
+
+
+# The run best among the island best rows: the best fitness, then the earliest eval_index, then the lowest island id.
+def run_best_row(state: GraphState, best_rows: dict[int, int]) -> int | None:
+    sign = -1.0 if state.maximising else 1.0
+    ranked = sorted(best_rows.items(), key=lambda item: (sign * state.row_fitness[item[1]], state.row_eval[item[1]], item[0]))
+    return ranked[0][1] if ranked else None
 
 
 def _link(
@@ -178,11 +202,15 @@ def set_coords(state: GraphState, coords: np.ndarray) -> None:
     np.add.at(state.coord_sum, state.row_node[: state.rows], coords)
 
 
-# Exact columns of every live node, in id order, plus the live edges and migrations.
-# progress divides each node's mean eval_index by span[island]: the island's per-island budget
-# while live, or its evaluation count (max eval_index + 1) for a final result.
-def columns(state: GraphState, span: dict[int, int]) -> dict[str, np.ndarray | list]:
-    ids = np.flatnonzero(state.alive[: state.nodes])
+# Exact columns of every shown node, in id order, plus the edges and migrations between shown nodes.
+# A node is shown while live, and after it fades for as long as it holds an island's best row.
+# progress divides each node's mean eval_index by span[island], the per-island budget while live or the evaluation count at the end.
+def columns(state: GraphState, span: dict[int, int]) -> dict[str, Any]:
+    best_rows = island_best_rows(state)
+    run_best = run_best_row(state, best_rows)
+    shown = state.alive[: state.nodes].copy()
+    shown[state.row_node[list(best_rows.values())]] = True
+    ids = np.flatnonzero(shown)
     island = state.island[ids]
     label = state.label[ids]
     visits = state.visits[ids]
@@ -192,7 +220,6 @@ def columns(state: GraphState, span: dict[int, int]) -> dict[str, np.ndarray | l
     # summing to f + 1 ulp), which would rank the node's own rows as better than itself.
     mean = np.clip(state.fit_sum[ids] / safe, lowest, highest)
     best = highest if state.maximising else lowest
-    best_oriented = -highest if state.maximising else lowest
     mean_oriented = -mean if state.maximising else mean
     fitness = state.row_fitness[: state.rows]
     ranked = np.sort(-fitness if state.maximising else fitness)
@@ -201,30 +228,29 @@ def columns(state: GraphState, span: dict[int, int]) -> dict[str, np.ndarray | l
     progress = np.clip(state.eval_sum[ids] / safe / np.maximum(denominator, 1.0), 0.0, 1.0)
     position = state.coord_sum[ids] / safe[:, None]
 
-    alive = state.alive
     edge_pair = state.edge_pair[: state.edges]
-    edge_live = np.flatnonzero(alive[edge_pair[:, 0]] & alive[edge_pair[:, 1]]) if state.edges else np.empty(0, np.int64)
+    edge_live = np.flatnonzero(shown[edge_pair[:, 0]] & shown[edge_pair[:, 1]]) if state.edges else np.empty(0, np.int64)
     migration_pair = state.migration_pair[: state.migrations]
-    migration_live = np.flatnonzero(alive[migration_pair[:, 0]] & alive[migration_pair[:, 1]]) if state.migrations else np.empty(0, np.int64)
+    migration_live = np.flatnonzero(shown[migration_pair[:, 0]] & shown[migration_pair[:, 1]]) if state.migrations else np.empty(0, np.int64)
     in_degree = np.bincount(edge_pair[edge_live, 1], minlength=state.nodes)[ids]
     out_degree = np.bincount(edge_pair[edge_live, 0], minlength=state.nodes)[ids]
     endpoint = np.zeros(state.nodes, dtype=bool)
     endpoint[migration_pair[migration_live].ravel()] = True
 
-    # Islands per label, over live nodes only.
+    # Islands per label, over shown nodes only.
     pairs = np.unique(np.stack([label, island], axis=1), axis=0) if ids.size else np.empty((0, 2), np.int64)
     labels, per_label = np.unique(pairs[:, 0], return_counts=True)
     sharing = per_label[np.searchsorted(labels, label)] if ids.size else np.empty(0, np.int64)
     overlap = float(per_label.mean()) if per_label.size else 0.0
 
+    column_of = np.full(state.nodes, -1, dtype=np.int64)
+    column_of[ids] = np.arange(ids.size)
     island_best = np.zeros(ids.size, dtype=bool)
     overall_best = np.zeros(ids.size, dtype=bool)
-    if ids.size:
-        # Sorted by island, then best fitness, then id: the first of each island wins.
-        order = np.lexsort((ids, best_oriented, island))
-        heads = np.r_[True, island[order][1:] != island[order][:-1]]
-        island_best[order[heads]] = True
-        overall_best[int(np.argmin(best_oriented))] = True
+    for row in best_rows.values():
+        island_best[column_of[state.row_node[row]]] = True
+    if run_best is not None:
+        overall_best[column_of[state.row_node[run_best]]] = True
 
     return {
         "id": ids,
@@ -245,9 +271,12 @@ def columns(state: GraphState, span: dict[int, int]) -> dict[str, np.ndarray | l
         "islands_sharing": sharing,
         "island_best": island_best,
         "overall_best": overall_best,
+        "faded": ~state.alive[ids],
+        "best_rows": best_rows,
+        "run_best_row": run_best,
         "migration_endpoint": endpoint[ids],
         "genome_hash": [state.genome_hash[i] for i in ids.tolist()],
-        "weight": state.weight[ids] if state.weighted else None,
+        "weight": np.where(state.alive[ids], state.weight[ids], 0.0) if state.weighted else None,
         "overlap": overlap,
         "edge_id": edge_live,
         "edge_pair": edge_pair[edge_live],
@@ -283,6 +312,7 @@ def nodes_model(cols: dict, select: np.ndarray | slice = slice(None)) -> Nodes:
         islands_sharing=cols["islands_sharing"][select].tolist(),
         island_best=cols["island_best"][select].tolist(),
         overall_best=cols["overall_best"][select].tolist(),
+        faded=cols["faded"][select].tolist(),
         migration_endpoint=cols["migration_endpoint"][select].tolist(),
         genome_hash=np.asarray(cols["genome_hash"], dtype=object)[select].tolist(),
         weight=_floats(weight[select]) if weight is not None else None,

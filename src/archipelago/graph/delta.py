@@ -31,6 +31,7 @@ CHANGING = (
     "out_degree",
     "islands_sharing",
     "migration_endpoint",
+    "faded",
     "x",
     "y",
     "z",
@@ -102,6 +103,9 @@ def diff(sent: Sent, cols: dict, nodes: int, edges: int, migrations: int, refit:
 
     def links(id_key: str, pair_key: str, total_key: str, record: np.ndarray, full: type, change: type, column: str):
         index = cols[id_key]
+        dropped = record >= 0
+        dropped[index] = False
+        record[dropped] = -1
         previous = record[index]
         current = cols[total_key]
         fresh = previous < 0

@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from . import explainability
-from .batch import clean_values, generation_history, island_ends, migration_routes, row_warnings
+from .batch import clean_values, generation_history, island_bests, island_ends, migration_routes, row_warnings
 from .config import (
     CALIBRATION_SAMPLE_SIZE,
     CHECKPOINT_FACTOR,
@@ -199,7 +199,9 @@ class ClusterStream:
             set_coords(self._state, coords)
         diagnostics = self._diagnostics(final=True)
         self._set_weights()
-        graph = to_graph(columns(self._state, self._span))
+        cols = columns(self._state, self._span)
+        graph = to_graph(cols)
+        bests, run_best_island = island_bests(self._state, cols, self._row_evaluations(), meta.generation_summaries)
         self._finished = True
         self._elapsed += time.perf_counter() - started
         run_info = RunInfo(
@@ -221,6 +223,8 @@ class ClusterStream:
             migration_routes=migration_routes(meta.route_migrants),
             generation_history=generation_history(meta.generation_summaries),
             island_ends=island_ends(meta.island_ends),
+            island_bests=bests,
+            run_best_island=run_best_island,
             explainability=explainability.finish(self._analyses, run_info),
             malformed_rows=len(self._malformed),
             warnings=self._warnings(),
@@ -554,8 +558,11 @@ class ClusterStream:
         alive = np.flatnonzero(state.alive[: state.nodes])
         state.weight[alive] = [weights[int(label)] for label in state.label[alive].tolist()]
 
+    def _row_evaluations(self) -> list[Evaluation]:
+        return [self._released[i] for i in self._row_release]
+
     def _separation(self) -> Separation:
-        evs = [self._released[i] for i in self._row_release]
+        evs = self._row_evaluations()
         matrix = self._store.rows if self._store is not None else np.zeros((0, 0))
         return island_separation(
             matrix,

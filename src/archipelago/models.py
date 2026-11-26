@@ -27,6 +27,7 @@ class Nodes(BaseModel):
     islands_sharing: list[int]
     island_best: list[bool]
     overall_best: list[bool]
+    faded: list[bool]  # DenStream faded the node out but it stays if it is an island's best
     migration_endpoint: list[bool]
     genome_hash: list[str]
     weight: list[float | None] | None
@@ -79,7 +80,6 @@ class Counts(BaseModel):
     evaluations: int
     rows_clustered: int
     nodes: int
-    # Nodes DenStream faded out (their micro-cluster was pruned); None without DenStream.
     faded_nodes: int | None
 
 
@@ -232,6 +232,17 @@ class IslandEnd(BaseModel):
     generations_since_improvement: int | None = None
 
 
+# An island's best evaluation: its best fitness, the first of its usable evaluations to reach it (by eval_index).
+class IslandBest(BaseModel):
+    island_id: int
+    fitness: float
+    individual_id: str
+    generation: int
+    evaluations: int | None
+    # The graph node holding the evaluation; it is kept in the graph even when DenStream faded it out.
+    node: int
+
+
 class Result(BaseModel):
     run: RunInfo
     layout: LayoutInfo
@@ -243,6 +254,8 @@ class Result(BaseModel):
     generation_history: list[GenerationSummary]
     # One per island that logged island_end, sorted by island_id; an island that crashed has none.
     island_ends: list[IslandEnd] = []
+    island_bests: list[IslandBest]
+    run_best_island: int | None
     explainability: Explainability
     malformed_rows: int
     warnings: list[str]
@@ -268,6 +281,7 @@ class NodeChanges(BaseModel):
     out_degree: list[int]
     islands_sharing: list[int]
     migration_endpoint: list[bool]
+    faded: list[bool]
 
 
 # Every node's rank drifts as each new row arrives, so percentiles travel on their own and only

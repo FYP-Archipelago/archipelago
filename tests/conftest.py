@@ -106,6 +106,7 @@ EXACT_NODE_FIELDS = (
     "out_degree",
     "islands_sharing",
     "migration_endpoint",
+    "faded",
     "genome_hash",
 )
 

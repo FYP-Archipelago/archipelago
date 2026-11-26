@@ -37,11 +37,20 @@ def test_cluster_run_invariants(run: SyntheticRun, stages: dict[str, bool]) -> N
         assert sum(nodes.visits) == 300
         assert result.clustering.counts.faded_nodes is None
     assert result.clustering.counts.nodes == len(nodes.id)
-    assert sum(nodes.overall_best) == 1
-    # Fitness is the sphere function, so the overall best node holds the lowest best_fitness.
-    best = nodes.overall_best.index(True)
-    assert nodes.best_fitness[best] == min(nodes.best_fitness)
-    assert sum(nodes.island_best) == 3
+    for island_best in result.island_bests:
+        island_rows = [r for r in run.rows if r["island_id"] == island_best.island_id]
+        lowest = min(r["fitness"] for r in island_rows)
+        first = min((r for r in island_rows if r["fitness"] == lowest), key=lambda r: r["eval_index"])
+        assert (island_best.fitness, island_best.individual_id, island_best.generation) == (lowest, first["individual_id"], first["generation"])
+    assert [b.island_id for b in result.island_bests] == [0, 1, 2]
+    flagged = {n for n, flag in zip(nodes.id, nodes.island_best) if flag}
+    assert flagged == {b.node for b in result.island_bests}
+    assert {n for n, faded in zip(nodes.id, nodes.faded) if faded} <= flagged
+    # Fitness is the sphere function, so the run best is the lowest island best; its node holds that best_fitness.
+    run_best = next(b for b in result.island_bests if b.island_id == result.run_best_island)
+    assert run_best.fitness == min(b.fitness for b in result.island_bests)
+    assert [n for n, flag in zip(nodes.id, nodes.overall_best) if flag] == [run_best.node]
+    assert all(nodes.best_fitness[nodes.id.index(b.node)] == b.fitness for b in result.island_bests)
     live = set(nodes.id)
     assert nodes.id == sorted(live)
     assert all(s in live and t in live and s != t for s, t in zip(graph.edges.source, graph.edges.target))
