@@ -9,6 +9,7 @@ import numpy as np
 
 from . import explainability
 from .config import Config
+from .convergence import convergence
 from .encoding.features import build_features
 from .errors import SchemaError
 from .graph.grouping import majority_labels
@@ -21,8 +22,19 @@ from .graph.state import (
     columns,
     to_graph,
 )
-from .models import ClusteringInfo, Counts, GenerationSummary, IslandEnd, MigrationRoute, Resolved, Result, RunInfo
-from .records import parse_run
+from .models import (
+    ClusteringInfo,
+    Counts,
+    GenerationSummary,
+    IslandBest,
+    IslandEnd,
+    MigrationArrival,
+    MigrationRoute,
+    Resolved,
+    Result,
+    RunInfo,
+)
+from .records import Evaluation, parse_run
 from .separation import island_separation
 from .stages import run_stages
 
@@ -47,12 +59,38 @@ def migration_routes(route_migrants: Mapping[tuple[int, int], int]) -> list[Migr
     return [MigrationRoute(source=source, destination=destination, migrants=count) for (source, destination), count in sorted(route_migrants.items())]
 
 
+def migration_arrivals(arrivals: Sequence[tuple[int, int, int, int, int]]) -> list[MigrationArrival]:
+    return [MigrationArrival(generation=g, source=s, destination=d, migrants=m, source_generation=sent) for g, s, d, m, sent in sorted(arrivals)]
+
+
 def generation_history(summaries: Mapping[tuple[int, int], GenerationSummary]) -> list[GenerationSummary]:
     return [summary for _, summary in sorted(summaries.items())]
 
 
 def island_ends(ends: Mapping[int, IslandEnd]) -> list[IslandEnd]:
     return [end for _, end in sorted(ends.items())]
+
+
+# The islands' best rows that columns() picked, and the island holding the run best. evaluations[r] is graph row r.
+def island_bests(
+    state: GraphState, cols: Mapping[str, Any], evaluations: Sequence[Evaluation], summaries: Mapping[tuple[int, int], GenerationSummary]
+) -> tuple[list[IslandBest], int | None]:
+    bests = []
+    for island, row in sorted(cols["best_rows"].items()):
+        ev = evaluations[row]
+        summary = summaries.get((island, ev.generation))
+        bests.append(
+            IslandBest(
+                island_id=island,
+                fitness=float(state.row_fitness[row]),
+                individual_id=ev.individual_id,
+                generation=ev.generation,
+                evaluations=summary.evaluations_total if summary else None,
+                node=int(state.row_node[row]),
+            )
+        )
+    run_best = cols["run_best_row"]
+    return bests, evaluations[run_best].island_id if run_best is not None else None
 
 
 def row_warnings(malformed: list[str], total: int) -> list[str]:
@@ -137,6 +175,7 @@ def _cluster_run(
         span[ev.island_id] = max(span.get(ev.island_id, 0), ev.eval_index + 1)
     cols = columns(state, span)
     graph = to_graph(cols)
+    bests, run_best_island = island_bests(state, cols, used, run.meta.generation_summaries)
 
     run_info = RunInfo(
         run_id=run.meta.run_id,
@@ -165,15 +204,19 @@ def _cluster_run(
                 evaluations=total,
                 rows_clustered=int(usable.size),
                 nodes=len(graph.nodes.id),
-                faded_nodes=len(dead) if assignment.row_weights is not None else None,
+                faded_nodes=len(dead) - int(cols["faded"].sum()) if assignment.row_weights is not None else None,
             ),
             resolved=Resolved(**clean_values(assignment.resolved)),
             diagnostics=diagnostics,
             elapsed_seconds=time.perf_counter() - started,
         ),
         migration_routes=migration_routes(run.meta.route_migrants),
+        migration_arrivals=migration_arrivals(run.meta.arrivals),
         generation_history=generation_history(run.meta.generation_summaries),
         island_ends=island_ends(run.meta.island_ends),
+        island_bests=bests,
+        run_best_island=run_best_island,
+        convergence=convergence(list(run.meta.generation_summaries.values()), run.meta.maximising, list(run.meta.island_ends.values())),
         explainability=explainability.finish(analyses, run_info),
         malformed_rows=len(malformed),
         warnings=warnings,

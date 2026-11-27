@@ -46,6 +46,8 @@ class RunMeta:
     migrations: tuple[tuple[str, str], ...] = ()
     # Migrants per (source island, destination island).
     route_migrants: dict[tuple[int, int], int] = field(default_factory=dict)
+    # (destination generation, source island, destination island, migrants, source generation) per migration
+    arrivals: tuple[tuple[int, int, int, int, int], ...] = ()
     # First generation_end summary per (island id, generation).
     generation_summaries: dict[tuple[int, int], GenerationSummary] = field(default_factory=dict)
     island_ends: dict[int, IslandEnd] = field(default_factory=dict)
@@ -148,6 +150,7 @@ class EventLog:
     maximising: bool | None = None
     migrations: list[tuple[str, str]] = field(default_factory=list)
     route_migrants: dict[tuple[int, int], int] = field(default_factory=dict)
+    arrivals: list[tuple[int, int, int, int, int]] = field(default_factory=list)
     generation_summaries: dict[tuple[int, int], GenerationSummary] = field(default_factory=dict)
     island_ends: dict[int, IslandEnd] = field(default_factory=dict)
 
@@ -158,11 +161,15 @@ def migration_pairs(event: Mapping[str, Any]) -> list[tuple[str, str]]:
     return [(str(o), str(a)) for o, a in zip(origins, arrived)]
 
 
+# Adds a migration_arrive event's migrants to its route, and records when they arrived
 def count_migrants(log: EventLog, event: Mapping[str, Any]) -> None:
     source, destination = event.get("source_island"), event.get("dest_island")
     migrants = len(event.get("arrived_individual_ids") or ())
     if isinstance(source, int) and isinstance(destination, int) and migrants:
         log.route_migrants[(source, destination)] = log.route_migrants.get((source, destination), 0) + migrants
+        generation, sent = event.get("dest_generation"), event.get("source_generation")
+        if type(generation) is int and type(sent) is int:
+            log.arrivals.append((generation, source, destination, migrants, sent))
 
 
 # Keeps the first summary per island and generation, with only GenerationSummary's fields and non-finite values as None.
@@ -234,6 +241,7 @@ def run_meta(log: EventLog) -> RunMeta:
         started_islands=tuple(log.started_islands),
         migrations=tuple(log.migrations),
         route_migrants=dict(log.route_migrants),
+        arrivals=tuple(log.arrivals),
         generation_summaries=dict(log.generation_summaries),
         island_ends=dict(log.island_ends),
         stagnation_generations=_optional_int(((start.get("config") or {}).get("termination") or {}).get("stagnation_generations")),

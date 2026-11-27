@@ -27,6 +27,7 @@ class Nodes(BaseModel):
     islands_sharing: list[int]
     island_best: list[bool]
     overall_best: list[bool]
+    faded: list[bool]  # DenStream faded the node out but it stays if it is an island's best
     migration_endpoint: list[bool]
     genome_hash: list[str]
     weight: list[float | None] | None
@@ -79,7 +80,6 @@ class Counts(BaseModel):
     evaluations: int
     rows_clustered: int
     nodes: int
-    # Nodes DenStream faded out (their micro-cluster was pruned); None without DenStream.
     faded_nodes: int | None
 
 
@@ -207,6 +207,14 @@ class MigrationRoute(BaseModel):
     migrants: int
 
 
+class MigrationArrival(BaseModel):
+    generation: int
+    source: int
+    destination: int
+    migrants: int
+    source_generation: int
+
+
 # Recorded generation_end statistics; no values are inferred from clustered nodes.
 class GenerationSummary(BaseModel):
     island_id: int
@@ -232,6 +240,43 @@ class IslandEnd(BaseModel):
     generations_since_improvement: int | None = None
 
 
+# An island's best evaluation: its best fitness, the first of its usable evaluations to reach it (by eval_index).
+class IslandBest(BaseModel):
+    island_id: int
+    fitness: float
+    individual_id: str
+    generation: int
+    evaluations: int | None
+    # The graph node holding the evaluation; it is kept in the graph even when DenStream faded it out.
+    node: int
+
+
+# Where the run first had made a share of its improvement along one axis, and which island got there.
+# x is a generation or that generation's evaluations_total, and fitness the island's best-so-far there.
+class ConvergencePoint(BaseModel):
+    island_id: int
+    x: int
+    fitness: float
+    # Share of all islands' search along this axis that came after x.
+    after: float
+
+
+class ConvergenceLevel(BaseModel):
+    share: float
+    generation: ConvergencePoint
+    evaluations: ConvergencePoint | None
+
+
+# How the run's best moved from its best starting value to its final best
+# Measured in orders of magnitude (log) when minimising with every value above 0, otherwise in fitness.
+class Convergence(BaseModel):
+    scale: Literal["log", "linear"]
+    start_fitness: float
+    final_fitness: float
+    # One per share in CONVERGENCE_SHARES, in that order; empty when the best never moved.
+    levels: list[ConvergenceLevel]
+
+
 class Result(BaseModel):
     run: RunInfo
     layout: LayoutInfo
@@ -239,10 +284,16 @@ class Result(BaseModel):
     clustering: ClusteringInfo
     separation: Separation
     migration_routes: list[MigrationRoute]
+    # Sorted by (generation, source, destination).
+    migration_arrivals: list[MigrationArrival]
     # Sorted by (island_id, generation). Empty for logs without generation summaries.
     generation_history: list[GenerationSummary]
     # One per island that logged island_end, sorted by island_id; an island that crashed has none.
     island_ends: list[IslandEnd] = []
+    island_bests: list[IslandBest]
+    run_best_island: int | None
+    # None for logs without generation summaries
+    convergence: Convergence | None
     explainability: Explainability
     malformed_rows: int
     warnings: list[str]
@@ -268,6 +319,7 @@ class NodeChanges(BaseModel):
     out_degree: list[int]
     islands_sharing: list[int]
     migration_endpoint: list[bool]
+    faded: list[bool]
 
 
 # Every node's rank drifts as each new row arrives, so percentiles travel on their own and only
@@ -322,7 +374,8 @@ class GraphDelta(BaseModel):
 
 class Update(BaseModel):
     status: Literal["warming_up", "live"]
-    # Set when the layout was refitted in this update (positions then carries every node).
+    maximising: bool | None  # None while warming up
+    migration_routes: list[MigrationRoute]
     layout: LayoutInfo | None
     clustering: ClusteringInfo
     malformed_rows: int

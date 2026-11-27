@@ -43,13 +43,18 @@ def test_viewer_applying_deltas_ends_equal_to_exact_columns() -> None:
     apply_delta(view, delta)
     assert_view_matches(view, to_graph(cols))
 
-    # Step 3: a weight moves by more than the tolerance, then a label is killed (node 1).
     state.weight[2] *= 1 + 2 * WEIGHT_TOLERANCE
     cols, delta = step(state, sent, False)
     assert delta.weights is not None and 2 in delta.weights.id
     apply_delta(view, delta)
     assert_view_matches(view, to_graph(cols))
     kill_labels(state, [1])
+    cols, delta = step(state, sent, False)
+    assert delta.removed_nodes == [] and delta.updated_nodes.id == [1]
+    apply_delta(view, delta)
+    assert_view_matches(view, to_graph(cols))
+    assert view.nodes[1]["faded"] is True
+    add_spec(state, [(0, 0, 5, 0.5, "j")])
     cols, delta = step(state, sent, False)
     assert delta.removed_nodes == [1]
     apply_delta(view, delta)

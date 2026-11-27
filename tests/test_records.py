@@ -139,16 +139,17 @@ def test_run_meta_reads_the_budget_per_island_and_the_stagnation_rule_from_run_s
     assert (run_meta(log).budget_per_island, run_meta(log).stagnation_generations) == (500, 30)
 
 
-def test_migrants_are_counted_per_route_and_incomplete_events_skipped() -> None:
+def test_migrants_are_counted_per_route_and_timed_and_incomplete_events_skipped() -> None:
     log = EventLog()
     for event in [
-        {"source_island": 0, "dest_island": 1, "arrived_individual_ids": ["a", "b"]},
+        {"source_island": 0, "dest_island": 1, "dest_generation": 5, "source_generation": 4, "arrived_individual_ids": ["a", "b"]},
         {"source_island": 0, "dest_island": 1, "arrived_individual_ids": ["c"]},
         {"source_island": 1, "dest_island": 0, "arrived_individual_ids": []},
         {"dest_island": 2, "arrived_individual_ids": ["d"]},
     ]:
         count_migrants(log, event)
     assert log.route_migrants == {(0, 1): 3}
+    assert log.arrivals == [(5, 0, 1, 2, 4)]
 
 
 def test_generation_summaries_keep_the_first_valid_summary_per_island_and_generation() -> None:

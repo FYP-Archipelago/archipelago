@@ -37,11 +37,20 @@ def test_cluster_run_invariants(run: SyntheticRun, stages: dict[str, bool]) -> N
         assert sum(nodes.visits) == 300
         assert result.clustering.counts.faded_nodes is None
     assert result.clustering.counts.nodes == len(nodes.id)
-    assert sum(nodes.overall_best) == 1
-    # Fitness is the sphere function, so the overall best node holds the lowest best_fitness.
-    best = nodes.overall_best.index(True)
-    assert nodes.best_fitness[best] == min(nodes.best_fitness)
-    assert sum(nodes.island_best) == 3
+    for island_best in result.island_bests:
+        island_rows = [r for r in run.rows if r["island_id"] == island_best.island_id]
+        lowest = min(r["fitness"] for r in island_rows)
+        first = min((r for r in island_rows if r["fitness"] == lowest), key=lambda r: r["eval_index"])
+        assert (island_best.fitness, island_best.individual_id, island_best.generation) == (lowest, first["individual_id"], first["generation"])
+    assert [b.island_id for b in result.island_bests] == [0, 1, 2]
+    flagged = {n for n, flag in zip(nodes.id, nodes.island_best) if flag}
+    assert flagged == {b.node for b in result.island_bests}
+    assert {n for n, faded in zip(nodes.id, nodes.faded) if faded} <= flagged
+    # Fitness is the sphere function, so the run best is the lowest island best; its node holds that best_fitness.
+    run_best = next(b for b in result.island_bests if b.island_id == result.run_best_island)
+    assert run_best.fitness == min(b.fitness for b in result.island_bests)
+    assert [n for n, flag in zip(nodes.id, nodes.overall_best) if flag] == [run_best.node]
+    assert all(nodes.best_fitness[nodes.id.index(b.node)] == b.fitness for b in result.island_bests)
     live = set(nodes.id)
     assert nodes.id == sorted(live)
     assert all(s in live and t in live and s != t for s, t in zip(graph.edges.source, graph.edges.target))
@@ -105,11 +114,14 @@ def test_stream_result_is_independent_of_chunking_interleaving_and_redelivery(st
 
 
 def test_batch_and_stream_count_each_migrant_once(run: SyntheticRun, streamed: dict[str, tuple[list[Update], Result]]) -> None:
-    # Island i receives two migrants from island i + 1; the streamed variant "b" also redelivers events.
+    # Island i receives two migrants from island i + 1, at generations 5 and 8, each sent a generation earlier.
+    # The streamed variant "b" also redelivers events.
     expected = [(0, 2, 2), (1, 0, 2), (2, 1, 2)]
+    arrivals = [(g, (d + 1) % 3, d, 1, g - 1) for g in (5, 8) for d in range(3)]
     batch = cluster_run(run.rows, run.events, STREAM_CONFIG)
     for result in (batch, *(result for _, result in streamed.values())):
         assert [(r.source, r.destination, r.migrants) for r in result.migration_routes] == expected
+        assert [(a.generation, a.source, a.destination, a.migrants, a.source_generation) for a in result.migration_arrivals] == sorted(arrivals)
 
 
 def test_batch_and_stream_give_the_same_attribution(run: SyntheticRun, streamed: dict[str, tuple[list[Update], Result]]) -> None:
@@ -149,3 +161,27 @@ def test_applying_all_updates_reproduces_the_final_graph(streamed: dict[str, tup
         # cannot know about. Everything else is exact (percentile and weight within tolerance).
         assert_view_matches(view, result.graph, skip=("x", "y", "z"))
         assert all(-1.0 <= view.nodes[n][axis] <= 1.0 for n in view.nodes for axis in "xyz")
+
+
+def test_batch_and_stream_pick_the_same_bests_and_convergence(run: SyntheticRun, streamed: dict[str, tuple[list[Update], Result]]) -> None:
+    batch = cluster_run(run.rows, run.events, STREAM_CONFIG)
+    assert batch.run_best_island is not None
+
+    # Node ids depend on how each mode clustered, so only the evaluations are compared.
+    def picks(result: Result) -> list[tuple]:
+        return [(b.island_id, b.fitness, b.individual_id, b.generation, b.evaluations) for b in result.island_bests]
+
+    for _, result in streamed.values():
+        assert picks(result) == picks(batch)
+        assert result.run_best_island == batch.run_best_island
+        assert result.convergence == batch.convergence
+
+
+def test_live_updates_carry_the_direction_and_route_totals(streamed: dict[str, tuple[list[Update], Result]]) -> None:
+    for updates, result in streamed.values():
+        assert all(u.maximising is None for u in updates if u.status == "warming_up")
+        assert all(u.maximising is False for u in updates if u.status == "live")
+        # Totals only grow, and the last update has every migrant the result counts.
+        totals = [sum(r.migrants for r in u.migration_routes) for u in updates]
+        assert totals == sorted(totals)
+        assert updates[-1].migration_routes == result.migration_routes

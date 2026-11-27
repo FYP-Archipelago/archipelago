@@ -52,7 +52,7 @@ def test_node_columns_by_hand() -> None:
     assert cols["weight"] is None
     # progress is clipped to 1 when the span is smaller than the mean eval_index (2.5 / 2).
     assert columns(build(False), {0: 2, 1: 4})["progress"].tolist()[1] == 1.0
-    check_best_flags_minimising_with_ties_to_lowest_id()
+    check_best_flags_minimising_with_ties_to_the_first_to_reach_it()
     check_mean_is_clipped_into_the_node_range()
 
 
@@ -67,14 +67,18 @@ def test_maximising_flips_percentile_and_best() -> None:
     assert cols["island_best"].tolist() == [True, False, True, False]
 
 
-def check_best_flags_minimising_with_ties_to_lowest_id() -> None:
+def check_best_flags_minimising_with_ties_to_the_first_to_reach_it() -> None:
     cols = columns(build(False), SPAN)
-    # Island 0: nodes 0 and 1 both have best 2.0, so node 0 wins; island 1: node 3 (1.0) beats node 2 (6.0).
-    assert cols["island_best"].tolist() == [True, False, False, True]
+    # Island 0 first reaches its best 2.0 at eval 1 (row 1, node 1), before row 3 brings node 0 to 2.0 at eval 2.
+    # Island 1's best is node 3 (1.0), which beats node 2 (6.0).
+    assert cols["best_rows"] == {0: 1, 1: 5}
+    assert cols["island_best"].tolist() == [False, True, False, True]
     assert cols["overall_best"].tolist() == [False, False, False, True]
-    # Without the island-1 rows, nodes 0 and 1 tie for the overall best too.
-    tied = columns(build(False, [r for r in ROWS if r[0] == 0]), SPAN)
-    assert tied["overall_best"].tolist() == [True, False]
+    assert cols["run_best_row"] == 5
+    # Islands tied on the run best: the one that got there at the earlier eval_index wins, whatever its id.
+    tied = columns(build(False, [(0, 0, 5, 1.0, "a"), (1, 1, 2, 1.0, "b"), (2, 2, 2, 1.0, "c")]), SPAN | {2: 4})
+    assert tied["run_best_row"] == 1
+    assert tied["overall_best"].tolist() == [False, True, False]
 
 
 def check_mean_is_clipped_into_the_node_range() -> None:
@@ -116,8 +120,10 @@ def test_edges_drop_self_loops_and_count_repeats() -> None:
     assert cols["overlap"] == pytest.approx((2 + 1 + 1) / 3)
 
 
-def test_kill_labels_removes_nodes_and_their_links_but_keeps_ids() -> None:
+def test_kill_labels_removes_nodes_and_their_links_but_keeps_ids_and_bests() -> None:
     state = link_state()
+    # Island 0's best moves to node 0 (row 7, 0.5), so killing node 1 below removes a node that holds no best.
+    add_spec(state, [(0, 0, 5, 0.5, "z")])
     before = columns(state, SPAN)
     kill_labels(state, [1])
     after = columns(state, SPAN)
@@ -133,14 +139,24 @@ def test_kill_labels_removes_nodes_and_their_links_but_keeps_ids() -> None:
     assert after["migration_id"].tolist() == [0, 1]
     assert after["in_degree"].tolist() == [0, 0, 1]
     assert after["out_degree"].tolist() == [0, 1, 0]
-    # Live labels now: 0 on islands {0, 1}, 2 on island 1.
+    # Shown labels now: 0 on islands {0, 1}, 2 on island 1.
     assert after["islands_sharing"].tolist() == [2, 2, 1]
     assert after["overlap"] == pytest.approx(1.5)
     assert after["island_best"].tolist() == [True, False, True]
-    assert after["overall_best"].tolist() == [False, False, True]
+    assert after["overall_best"].tolist() == [True, False, False]
+    assert after["faded"].tolist() == [False, False, False]
     graph = to_graph(after)
     assert graph.nodes.id == [0, 2, 3]
     assert graph.edges.id == [2]
+
+    # Node 3 holds island 1's best row (row 5, 1.0): killed, it stays with its links, marked faded.
+    kill_labels(state, [2])
+    kept_best = columns(state, SPAN)
+    assert kept_best["id"].tolist() == [0, 2, 3]
+    assert kept_best["faded"].tolist() == [False, False, True]
+    assert kept_best["island_best"].tolist() == [True, False, True]
+    assert kept_best["edge_id"].tolist() == [2]
+
     # A new node is numbered after every earlier one, dead or alive.
     add_rows(state, ["new"], np.array([0]), np.array([9]), np.array([9]), np.array([3.0]), ["n"], np.zeros((1, 3)))
     assert columns(state, SPAN)["id"].tolist() == [0, 2, 3, 4]
